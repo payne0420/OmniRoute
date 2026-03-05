@@ -294,6 +294,7 @@ Az AI-szolgáltatók instabillá válhatnak, 5xx-es hibákat adnak vissza, vagy 
 - **Mennydörgés elleni csorda** - Mutex + szemafor védelem az egyidejű újrapróbálkozási viharok ellen
 - **Kombinált tartalék láncok** – Ha az elsődleges szolgáltató meghibásodik, automatikusan, beavatkozás nélkül átesik a láncon
 - **Combo Circuit Breaker** – Automatikusan letiltja a hibás szolgáltatókat a kombinált láncon belül
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Egészségügyi irányítópult** — Üzemidő-figyelés, áramkör-megszakító állapotok, zárolások, gyorsítótár-statisztika, p50/p95/p99 késleltetés
 
 </details>

@@ -289,7 +289,7 @@ Provedores de IA podem ficar instáveis, retornar erro 5xx ou atingir limites te
 
 **Como o OmniRoute resolve isso:**
 
-- **Circuit Breaker por provedor** — Abre/fecha automaticamente com limiares e cooldown configuráveis (Closed/Open/Half-Open)
+- **Circuit Breaker por modelo** — Abre/fecha automaticamente com limiares e cooldown configuráveis (Closed/Open/Half-Open)
 - **Exponential Backoff** — Atrasos progressivos de retry
 - **Anti-Thundering Herd** — Proteção com mutex + semáforo contra tempestade de retries concorrentes
 - **Cadeias de Fallback em Combo** — Se o primário falhar, avança automaticamente na cadeia sem intervenção
@@ -871,7 +871,8 @@ Por que isso é relevante:
 
 | Funcionalidade                      | O que Faz                                                                     |
 | ----------------------------------- | ----------------------------------------------------------------------------- |
-| 🔌 **Circuit Breaker**              | Auto-abertura/fechamento por provedor com limites configuráveis               |
+| 🔌 **Circuit Breaker**              | Trip/recover por modelo com limites configuráveis                             |
+| 🎯 **Endpoint-Aware Models**        | Custom models declare supported endpoints + API format                        |
 | 🛡️ **Anti-Thundering Herd**         | Mutex + semáforo rate-limit para provedores com API key                       |
 | 🧠 **Cache Semântico**              | Cache de duas camadas (assinatura + semântico) reduz custo e latência         |
 | ⚡ **Idempotência de Requisição**   | Janela de dedup de 5s para requisições duplicadas                             |

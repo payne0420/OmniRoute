@@ -294,6 +294,7 @@ Tekoälypalveluntarjoajat voivat muuttua epävakaiksi, palauttaa 5xx-virheitä t
 - **Anti-Thundering Herd** — Mutex + semaforisuoja samanaikaisia myrskyjä vastaan
 - **Yhdistelmävaraketjut** – Jos ensisijainen toimittaja epäonnistuu, putoaa automaattisesti ketjun läpi ilman väliintuloa
 - **Combo Circuit Breaker** — Poistaa automaattisesti käytöstä vialliset palveluntarjoajat yhdistelmäketjussa
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Health Dashboard** — käytettävyyden valvonta, katkaisijoiden tilat, lukitukset, välimuistitilastot, p50/p95/p99-viive
 
 </details>

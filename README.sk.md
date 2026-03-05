@@ -295,6 +295,7 @@ Poskytovatelia AI sa môžu stať nestabilnými, vrátiť chyby 5xx alebo dosiah
 - **Anti-Thundering Herd** - ochrana Mutex + semafor proti súbežným opakovaným búrkam
 - **Combo Fallback Chains** – Ak primárny poskytovateľ zlyhá, automaticky prepadne reťazcom bez akéhokoľvek zásahu
 - **Combo Circuit Breaker** – Automaticky deaktivuje zlyhávajúcich poskytovateľov v rámci kombinovaného reťazca
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
   – **Health Dashboard** – Monitorovanie dostupnosti, stavy ističov, blokovania, štatistiky vyrovnávacej pamäte, latencia p50/p95/p99
 
 </details>

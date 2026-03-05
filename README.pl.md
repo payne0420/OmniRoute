@@ -1495,14 +1495,15 @@ Jeśli chcesz uzyskać dostęp do **podręcznika URL**:
 
 OmniRoute ma **ponad 210 funkcji zaplanowanych** w wielu fazach rozwoju. Oto kluczowe obszary:
 
-| Kategoria                        | Planowane funkcje | Najważniejsze                                                                                                                                      |
-| -------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🧠 **Routing i inteligencja**    | 25+               | Routing z najmniejszym opóźnieniem, routing oparty na tagach, wstępna inspekcja przydziału, wybór konta P2C                                        |
-| 🔒 **Bezpieczeństwo i zgodność** | 20+               | Wzmocnienie SSRF, maskowanie poświadczeń, limit szybkości na punkt końcowy, zakres kluczy zarządzania                                              |
-| 📊 **Obserwowalność**            | 15+               | Integracja OpenTelemetry, monitorowanie kwot w czasie rzeczywistym, śledzenie kosztów według modelu                                                |
-| 🔄 **Integracja dostawców**      | 20+               | Rejestr modeli dynamicznych, czasy odnowienia dostawcy, Kodeks dla wielu kont, analiza przydziału Copilot                                          |
-| ⚡ **Wydajność**                 | 15+               | Podwójna warstwa pamięci podręcznej, pamięć podręczna podpowiedzi, pamięć podręczna odpowiedzi, utrzymywanie transmisji strumieniowej, wsadowe API |
-| 🌐 **Ekosystem**                 | 10+               | WebSocket API, ładowanie konfiguracji na gorąco, rozproszony magazyn konfiguracji, tryb komercyjny                                                 |
+| Kategoria                        | Planowane funkcje                                      | Najważniejsze                                                                                                                                      |
+| -------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🎯 **Endpoint-Aware Models**     | Custom models declare supported endpoints + API format |
+| 🧠 **Routing i inteligencja**    | 25+                                                    | Routing z najmniejszym opóźnieniem, routing oparty na tagach, wstępna inspekcja przydziału, wybór konta P2C                                        |
+| 🔒 **Bezpieczeństwo i zgodność** | 20+                                                    | Wzmocnienie SSRF, maskowanie poświadczeń, limit szybkości na punkt końcowy, zakres kluczy zarządzania                                              |
+| 📊 **Obserwowalność**            | 15+                                                    | Integracja OpenTelemetry, monitorowanie kwot w czasie rzeczywistym, śledzenie kosztów według modelu                                                |
+| 🔄 **Integracja dostawców**      | 20+                                                    | Rejestr modeli dynamicznych, czasy odnowienia dostawcy, Kodeks dla wielu kont, analiza przydziału Copilot                                          |
+| ⚡ **Wydajność**                 | 15+                                                    | Podwójna warstwa pamięci podręcznej, pamięć podręczna podpowiedzi, pamięć podręczna odpowiedzi, utrzymywanie transmisji strumieniowej, wsadowe API |
+| 🌐 **Ekosystem**                 | 10+                                                    | WebSocket API, ładowanie konfiguracji na gorąco, rozproszony magazyn konfiguracji, tryb komercyjny                                                 |
 
 ### 🔜 Już wkrótce
 

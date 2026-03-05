@@ -294,6 +294,7 @@ Os provedores de IA podem ficar instáveis, retornar erros 5xx ou atingir limite
 - **Rebanho Anti-Trovão** — Proteção Mutex + semáforo contra tempestades de novas tentativas simultâneas
 - **Combo Fallback Chains** — Se o provedor primário falhar, ele cairá automaticamente na cadeia sem intervenção
 - **Combo Circuit Breaker** — Desativa automaticamente provedores com falha em uma cadeia de combinação
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Health Dashboard** — Monitoramento de tempo de atividade, estados de disjuntores, bloqueios, estatísticas de cache, latência p50/p95/p99
 
 </details>

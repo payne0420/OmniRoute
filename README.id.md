@@ -294,6 +294,7 @@ Penyedia AI bisa menjadi tidak stabil, menampilkan kesalahan 5xx, atau mencapai 
 - **Kawanan Anti-Guntur** — Perlindungan mutex + semaphore terhadap badai percobaan ulang secara bersamaan
 - **Combo Fallback Chains** — Jika penyedia utama gagal, otomatis gagal dalam rantai tanpa intervensi
 - **Combo Circuit Breaker** — Menonaktifkan secara otomatis penyedia yang gagal dalam rantai kombo
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Dasbor Kesehatan** — Pemantauan waktu aktif, status pemutus sirkuit, penguncian, statistik cache, latensi p50/p95/p99
 
 </details>

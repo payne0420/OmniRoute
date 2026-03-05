@@ -1495,14 +1495,15 @@ Als u geen geloofwaardige geloofwaardigheid meer heeft, is het mogelijk om de st
 
 OmniRoute heeft **210+ functies gepland** over meerdere ontwikkelingsfasen. Dit zijn de belangrijkste gebieden:
 
-| Categorie                       | Geplande functies | Hoogtepunten                                                                                              |
-| ------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
-| 🧠 **Routing en intelligentie** | 25+               | Routering met de laagste latentie, op tags gebaseerde routering, quota-preflight, P2C-accountselectie     |
-| 🔒 **Beveiliging en naleving**  | 20+               | SSRF-verharding, cloaking van inloggegevens, snelheidslimiet per eindpunt, scoping van beheersleutels     |
-| 📊 **Waarneembaarheid**         | 15+               | OpenTelemetry-integratie, realtime quotabewaking, kostenregistratie per model                             |
-| 🔄 **Provider-integraties**     | 20+               | Dynamisch modelregister, cooldowns van providers, Codex met meerdere accounts, parseren van Copilot-quota |
-| ⚡ **Prestaties**               | 15+               | Dubbele cachelaag, promptcache, responscache, streaming keepalive, batch-API                              |
-| 🌐 **Ecosysteem**               | 10+               | WebSocket API, configuratie hot-reload, gedistribueerde configuratieopslag, commerciële modus             |
+| Categorie                       | Geplande functies                                      | Hoogtepunten                                                                                              |
+| ------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| 🎯 **Endpoint-Aware Models**    | Custom models declare supported endpoints + API format |
+| 🧠 **Routing en intelligentie** | 25+                                                    | Routering met de laagste latentie, op tags gebaseerde routering, quota-preflight, P2C-accountselectie     |
+| 🔒 **Beveiliging en naleving**  | 20+                                                    | SSRF-verharding, cloaking van inloggegevens, snelheidslimiet per eindpunt, scoping van beheersleutels     |
+| 📊 **Waarneembaarheid**         | 15+                                                    | OpenTelemetry-integratie, realtime quotabewaking, kostenregistratie per model                             |
+| 🔄 **Provider-integraties**     | 20+                                                    | Dynamisch modelregister, cooldowns van providers, Codex met meerdere accounts, parseren van Copilot-quota |
+| ⚡ **Prestaties**               | 15+                                                    | Dubbele cachelaag, promptcache, responscache, streaming keepalive, batch-API                              |
+| 🌐 **Ecosysteem**               | 10+                                                    | WebSocket API, configuratie hot-reload, gedistribueerde configuratieopslag, commerciële modus             |
 
 ### 🔜 Binnenkort beschikbaar
 

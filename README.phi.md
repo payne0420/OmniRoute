@@ -289,7 +289,7 @@ Ang mga tagapagbigay ng AI ay maaaring maging hindi matatag, magbalik ng 5xx na 
 
 **Paano ito niresolba ng OmniRoute:**
 
-- **Circuit Breaker per-provider** — Awtomatikong buksan/sarado na may mga na-configure na threshold at cooldown (Sarado/Bukas/Kalahating Bukas)
+- **Circuit Breaker per-model** — Awtomatikong buksan/sarado na may mga na-configure na threshold at cooldown (Sarado/Bukas/Kalahating Bukas)
 - **Exponential Backoff** — Progressive retry delays
 - **Anti-Thundering Herd** — Mutex + semaphore na proteksyon laban sa kasabay na muling pagsubok na mga bagyo
 - **Combo Fallback Chains** — Kung nabigo ang pangunahing provider, awtomatikong mahuhulog sa chain nang walang interbensyon
@@ -864,6 +864,7 @@ npm run electron:build:linux   # Linux (.AppImage)
 | Tampok                                    | Ano ang Ginagawa Nito                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------- |
 | 🔌 **Circuit Breaker**                    | Awtomatikong buksan/isara ang bawat provider na may mga na-configure na threshold     |
+| 🎯 **Endpoint-Aware Models**              | Custom models declare supported endpoints + API format                                |
 | 🛡️ **Anti-Thundering Herd**               | Mutex + semaphore rate-limit para sa mga API key provider                             |
 | 🧠 **Semantic Cache**                     | Binabawasan ng two-tier na cache (pirma + semantiko) ang gastos at latency            |
 | ⚡ **Humiling ng Idempotency**            | 5s dedup window para sa mga duplicate na kahilingan                                   |

@@ -1495,14 +1495,15 @@ Jika anda ingin mendapatkan credenciais próprias agora, ada kemungkinan penggun
 
 OmniRoute mempunyai **210+ ciri yang dirancang** merentas berbilang fasa pembangunan. Berikut adalah bidang utama:
 
-| Kategori                       | Ciri Terancang | Sorotan                                                                                              |
-| ------------------------------ | -------------- | ---------------------------------------------------------------------------------------------------- |
-| 🧠 **Penghalaan & Perisikan**  | 25+            | Penghalaan kependaman terendah, penghalaan berasaskan teg, kuota prapenerbangan, pemilihan akaun P2C |
-| 🔒 **Keselamatan & Pematuhan** | 20+            | Pengerasan SSRF, penyelubungan kelayakan, had kadar setiap titik akhir, skop kunci pengurusan        |
-| 📊 **Kebolehlihatan**          | 15+            | Penyepaduan OpenTelemetry, pemantauan kuota masa nyata, penjejakan kos setiap model                  |
-| 🔄 **Integrasi Pembekal**      | 20+            | Pendaftaran model dinamik, penyejukan pembekal, Codex berbilang akaun, penghuraian kuota Copilot     |
-| ⚡ **Prestasi**                | 15+            | Lapisan cache dwi, ​​cache gesaan, cache respons, penstriman keepalive, API kelompok                 |
-| 🌐 **Ekosistem**               | 10+            | API WebSocket, konfigurasi hot-reload, kedai konfigurasi teragih, mod komersial                      |
+| Kategori                       | Ciri Terancang                                         | Sorotan                                                                                              |
+| ------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| 🎯 **Endpoint-Aware Models**   | Custom models declare supported endpoints + API format |
+| 🧠 **Penghalaan & Perisikan**  | 25+                                                    | Penghalaan kependaman terendah, penghalaan berasaskan teg, kuota prapenerbangan, pemilihan akaun P2C |
+| 🔒 **Keselamatan & Pematuhan** | 20+                                                    | Pengerasan SSRF, penyelubungan kelayakan, had kadar setiap titik akhir, skop kunci pengurusan        |
+| 📊 **Kebolehlihatan**          | 15+                                                    | Penyepaduan OpenTelemetry, pemantauan kuota masa nyata, penjejakan kos setiap model                  |
+| 🔄 **Integrasi Pembekal**      | 20+                                                    | Pendaftaran model dinamik, penyejukan pembekal, Codex berbilang akaun, penghuraian kuota Copilot     |
+| ⚡ **Prestasi**                | 15+                                                    | Lapisan cache dwi, ​​cache gesaan, cache respons, penstriman keepalive, API kelompok                 |
+| 🌐 **Ekosistem**               | 10+                                                    | API WebSocket, konfigurasi hot-reload, kedai konfigurasi teragih, mod komersial                      |
 
 ### 🔜 Akan Datang
 

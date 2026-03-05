@@ -47,7 +47,7 @@ _Your universal API proxy — one endpoint, 36+ providers, zero downtime. Now wi
 | **Settings**   | ![Settings](docs/screenshots/06-settings.png)     |
 | **CLI Tools**  | ![CLI Tools](docs/screenshots/07-cli-tools.png)   |
 | **Usage Logs** | ![Usage](docs/screenshots/08-usage.png)           |
-| **Endpoints**  | ![Endpoints](docs/screenshots/09-endpoint.png)   |
+| **Endpoints**  | ![Endpoints](docs/screenshots/09-endpoint.png)    |
 
 </details>
 
@@ -289,7 +289,7 @@ AI providers can become unstable, return 5xx errors, or hit temporary rate limit
 
 **How OmniRoute solves it:**
 
-- **Circuit Breaker per-provider** — Auto-open/close with configurable thresholds and cooldown (Closed/Open/Half-Open)
+- **Circuit Breaker per-model** — Auto-open/close with configurable thresholds and cooldown (Closed/Open/Half-Open), scoped per-model to avoid cascading blocks
 - **Exponential Backoff** — Progressive retry delays
 - **Anti-Thundering Herd** — Mutex + semaphore protection against concurrent retry storms
 - **Combo Fallback Chains** — If the primary provider fails, automatically falls through the chain with no intervention
@@ -890,19 +890,19 @@ OmniRoute v2.0 is built as an operational platform, not just a relay proxy.
 
 ### 🤖 Agent & Protocol Operations (v2.0)
 
-| Feature                              | What It Does                                                                     |
-| ------------------------------------ | -------------------------------------------------------------------------------- |
-| 🔧 **MCP Server (16 tools)**         | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`) |
-| 🤝 **A2A Server (JSON-RPC + SSE)**   | Agent-to-agent task execution with sync and streaming flows                      |
-| 🧭 **Consolidated Endpoints Page**   | Tabbed management page with Endpoint Proxy, MCP, A2A, and API Endpoints tabs    |
-| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF)        |
-| 🛰️ **MCP Runtime Heartbeat**         | Real process status (pid, uptime, heartbeat age, transport, scope mode)          |
-| 📋 **MCP Audit Trail**               | Filterable audit logs with success/failure and key attribution                   |
-| 🔐 **MCP Scope Enforcement**         | 9 granular scope permissions for controlled tool access                          |
-| 📡 **A2A Task Lifecycle Management** | List/filter tasks, inspect events/artifacts, cancel running tasks                |
-| 📋 **Agent Card Discovery**          | `/.well-known/agent.json` for client auto-discovery                              |
-| 🧪 **Protocol E2E Test Harness**     | Real MCP SDK + A2A client flows in `test:protocols:e2e`                          |
-| ⚙️ **Operational Controls**          | Switch combo, apply resilience profiles, reset breakers from one control surface |
+| Feature                               | What It Does                                                                                       |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 🔧 **MCP Server (16 tools)**          | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`) |
+| 🤝 **A2A Server (JSON-RPC + SSE)**    | Agent-to-agent task execution with sync and streaming flows                                        |
+| 🧭 **Consolidated Endpoints Page**    | Tabbed management page with Endpoint Proxy, MCP, A2A, and API Endpoints tabs                       |
+| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF)                           |
+| 🛰️ **MCP Runtime Heartbeat**          | Real process status (pid, uptime, heartbeat age, transport, scope mode)                            |
+| 📋 **MCP Audit Trail**                | Filterable audit logs with success/failure and key attribution                                     |
+| 🔐 **MCP Scope Enforcement**          | 9 granular scope permissions for controlled tool access                                            |
+| 📡 **A2A Task Lifecycle Management**  | List/filter tasks, inspect events/artifacts, cancel running tasks                                  |
+| 📋 **Agent Card Discovery**           | `/.well-known/agent.json` for client auto-discovery                                                |
+| 🧪 **Protocol E2E Test Harness**      | Real MCP SDK + A2A client flows in `test:protocols:e2e`                                            |
+| ⚙️ **Operational Controls**           | Switch combo, apply resilience profiles, reset breakers from one control surface                   |
 
 ### 🧠 Routing & Intelligence
 
@@ -938,7 +938,8 @@ OmniRoute v2.0 is built as an operational platform, not just a relay proxy.
 
 | Feature                             | What It Does                                               |
 | ----------------------------------- | ---------------------------------------------------------- |
-| 🔌 **Circuit Breakers**             | Provider-level trip/recover with threshold controls        |
+| 🔌 **Circuit Breakers**             | Per-model trip/recover with threshold controls             |
+| 🎯 **Endpoint-Aware Models**        | Custom models declare supported endpoints + API format     |
 | 🛡️ **Anti-Thundering Herd**         | Mutex + semaphore protections on retry/rate events         |
 | 🧠 **Semantic + Signature Cache**   | Cost/latency reduction with two cache layers               |
 | ⚡ **Request Idempotency**          | Duplicate protection window                                |

@@ -1348,15 +1348,16 @@ codex "your prompt"
 
 ## 📖 文档
 
-| 文档                                | 描述                         |
-| ----------------------------------- | ---------------------------- |
-| [用户指南](docs/USER_GUIDE.md)      | 提供商、组合、CLI 集成、部署 |
-| [API 参考](docs/API_REFERENCE.md)   | 所有端点及示例               |
-| [故障排除](docs/TROUBLESHOOTING.md) | 常见问题和解决方案           |
-| [架构](docs/ARCHITECTURE.md)        | 系统架构和内部机制           |
-| [贡献指南](CONTRIBUTING.md)         | 开发设置和指南               |
-| [OpenAPI 规范](docs/openapi.yaml)   | OpenAPI 3.0 规范             |
-| [安全策略](SECURITY.md)             | 漏洞报告和安全实践           |
+| 文档                                | 描述                                                   |
+| ----------------------------------- | ------------------------------------------------------ |
+| 🎯 **Endpoint-Aware Models**        | Custom models declare supported endpoints + API format |
+| [用户指南](docs/USER_GUIDE.md)      | 提供商、组合、CLI 集成、部署                           |
+| [API 参考](docs/API_REFERENCE.md)   | 所有端点及示例                                         |
+| [故障排除](docs/TROUBLESHOOTING.md) | 常见问题和解决方案                                     |
+| [架构](docs/ARCHITECTURE.md)        | 系统架构和内部机制                                     |
+| [贡献指南](CONTRIBUTING.md)         | 开发设置和指南                                         |
+| [OpenAPI 规范](docs/openapi.yaml)   | OpenAPI 3.0 规范                                       |
+| [安全策略](SECURITY.md)             | 漏洞报告和安全实践                                     |
 
 ---
 

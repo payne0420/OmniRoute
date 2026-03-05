@@ -866,6 +866,7 @@ npm run electron:build:linux   # Linux (.AppImage)
 | Fonctionnalité                  | Ce qu'elle fait                                                              |
 | ------------------------------- | ---------------------------------------------------------------------------- |
 | 🔌 **Circuit Breaker**          | Ouverture/fermeture auto par fournisseur avec seuils configurables           |
+| 🎯 **Endpoint-Aware Models**    | Custom models declare supported endpoints + API format                       |
 | 🛡️ **Anti-Thundering Herd**     | Mutex + sémaphore de rate-limit pour les fournisseurs avec clé API           |
 | 🧠 **Cache sémantique**         | Cache à deux niveaux (signature + sémantique) réduit coût et latence         |
 | ⚡ **Idempotence des requêtes** | Fenêtre de dédup 5s pour les requêtes dupliquées                             |

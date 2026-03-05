@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.1] — 2026-03-05
+
+> ### 🐛 Bug Fixes & ✨ Endpoint-Aware Model Management
+
+### 🐛 Bug Fixes
+
+- **#212 — API Key creation crash** — Auto-generate `API_KEY_SECRET` at startup (like `JWT_SECRET`) to prevent HMAC crashes
+- **#213 — Circuit breaker scope** — Changed circuit breaker key from provider-level to model-level; a 429 on one account no longer blocks all accounts for the same provider
+- **#200 — Custom provider connection check** — Added connectivity fallback for OpenAI-compatible providers (Ollama, LM Studio); if `/models` and `/chat/completions` fail, a simple HTTP ping to the base URL marks the provider as connected
+
+### ✨ New Features
+
+- **#204 — API Format selector** — Custom models can now specify `apiFormat`: `chat-completions` (default) or `responses` (for the Responses API)
+- **#205 — Combo endpoint support** — Combos now accept an `endpoint` field in the schema (`chat` | `embeddings` | `images`), enabling fallback/rotation combos for non-chat endpoints
+- **#206 — Supported Endpoints mapping** — When adding custom models, users can check which endpoints the model supports (💬 Chat, 📐 Embeddings, 🖼️ Images, 🔊 Audio). Models tagged for embeddings appear in `/v1/embeddings` and models tagged for images appear in `/v1/images/generations`
+- **Visual badges** — Model rows now display colored badges for non-default API formats and endpoint types
+- **Model catalog metadata** — `/v1/models` response includes `api_format`, `type`, and `supported_endpoints` for custom models
+
+### 📁 Files Changed
+
+| File                                                    | Change                                           |
+| ------------------------------------------------------- | ------------------------------------------------ |
+| `src/instrumentation.ts`                                | Auto-generate `API_KEY_SECRET`                   |
+| `open-sse/services/combo.ts`                            | Circuit breaker keyed per-model                  |
+| `src/lib/providers/validation.ts`                       | Connectivity fallback ping                       |
+| `src/lib/db/models.ts`                                  | `apiFormat` + `supportedEndpoints` fields        |
+| `src/shared/schemas/validation.ts`                      | `endpoint` in `comboSchema`                      |
+| `src/shared/validation/schemas.ts`                      | Extended `providerModelMutationSchema`           |
+| `src/app/api/provider-models/route.ts`                  | Pass new fields through API                      |
+| `src/app/(dashboard)/dashboard/providers/[id]/page.tsx` | API format dropdown, endpoint checkboxes, badges |
+| `src/app/api/v1/models/catalog.ts`                      | Custom model metadata enrichment                 |
+| `src/app/api/v1/embeddings/route.ts`                    | Include custom embedding models                  |
+| `src/app/api/v1/images/generations/route.ts`            | Include custom image models                      |
+
+---
+
 ## [2.0.0] — 2026-03-05
 
 > ### 🚀 Major Release — MCP Multi-Transport, A2A Protocol, Auto-Combo Engine & Full Type Safety Overhaul
@@ -131,13 +167,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | `src/lib/a2a/skills/`            | `smartRouting.ts`, `quotaManagement.ts`                                                                                                                    |
 | `src/app/a2a/`                   | `route.ts` (JSON-RPC 2.0 dispatch handler)                                                                                                                 |
 | `src/app/api/mcp/sse/`           | `route.ts` (SSE transport endpoint)                                                                                                                        |
-| `src/app/api/mcp/stream/`        | `route.ts` (Streamable HTTP transport endpoint)                                                                                                             |
+| `src/app/api/mcp/stream/`        | `route.ts` (Streamable HTTP transport endpoint)                                                                                                            |
 | `open-sse/services/autoCombo/`   | `scoring.ts`, `taskFitness.ts`, `engine.ts`, `selfHealing.ts`, `modePacks.ts`, `persistence.ts`, `index.ts`                                                |
 | `src/shared/contracts/`          | `quota.ts` (shared API contracts)                                                                                                                          |
 | `src/shared/constants/`          | `mcpScopes.ts`                                                                                                                                             |
 | `src/shared/validation/`         | `settingsSchemas.ts` (extracted settings Zod schema)                                                                                                       |
 | `src/lib/db/migrations/`         | `002_mcp_a2a_tables.sql`                                                                                                                                   |
-| `src/app/(dashboard)/`           | `dashboard/mcp/page.tsx`, `dashboard/a2a/page.tsx`, `dashboard/auto-combo/page.tsx`, `dashboard/endpoint/ApiEndpointsTab.tsx`                               |
+| `src/app/(dashboard)/`           | `dashboard/mcp/page.tsx`, `dashboard/a2a/page.tsx`, `dashboard/auto-combo/page.tsx`, `dashboard/endpoint/ApiEndpointsTab.tsx`                              |
 | `vscode-extension/src/services/` | `mcpClient.ts`, `a2aClient.ts`, `policyEngine.ts`, `preflightDialog.ts`, `budgetGuard.ts`, `healthMonitor.ts`, `modePackSelector.ts`, `humanCheckpoint.ts` |
 | `scripts/`                       | `check-cycles.mjs`, `check-docs-sync.mjs`, `check-route-validation.mjs`, `check-t11-any-budget.mjs`, `run-playwright-tests.mjs`, `runtime-env.mjs`         |
 | `tests/`                         | `t06-schema-hardening.test.mjs`, `t07-no-log-key-config.test.mjs`, `t08-mcp-scope-enforcement.test.mjs`, `ecosystem.test.ts`                               |
@@ -158,12 +194,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 | `889e2ba` | 2026-03-04 | feat: add error pages, harden DB layer and compliance module                             |
 | `cbd0b1c` | 2026-03-04 | refactor: harden open-sse services, eliminate any casts, add dashboard pages             |
 | `b33a853` | 2026-03-04 | feat: Introduce A2A lifecycle management, add type safety to ComfyUI and stream handling |
-| `a1a2610` | 2026-03-04 | feat: v2.0.0 - MCP server, A2A agent, proxy improvements and docs update                |
+| `a1a2610` | 2026-03-04 | feat: v2.0.0 - MCP server, A2A agent, proxy improvements and docs update                 |
 | `d615ca5` | 2026-03-05 | feat: configurable tool name prefix (#199) and custom rpm/tpm rate limits (#198)         |
 | `6d8868b` | 2026-03-05 | fix: extract validation helpers to fix webpack barrel-file resolution bug                |
 | `bc2e60c` | 2026-03-05 | feat: Introduce new A2A and MCP API routes, enhance dashboard UI, E2E tests              |
 | `79c23df` | 2026-03-05 | feat: Add i18n for media/themes, enhance combos with strategy guides, E2E tests          |
-| `2490ba5` | 2026-03-05 | feat: Introduce combo readiness checks and strategy recommendations                     |
+| `2490ba5` | 2026-03-05 | feat: Introduce combo readiness checks and strategy recommendations                      |
 | `48dda26` | 2026-03-05 | fix: CORS headers on early-return error responses + auto-combo validation (#208, #209)   |
 | `078a42b` | 2026-03-05 | feat: consolidate Endpoint, MCP, A2A into tabbed Endpoints page                          |
 | `6f1e6a0` | 2026-03-05 | feat: add MCP/A2A enable/disable toggle switches on Endpoints page                       |

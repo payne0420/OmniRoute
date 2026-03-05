@@ -287,6 +287,7 @@ Wenn ein KI-Gateway dem Netzwerk (LAN, VPS, Docker) zugänglich gemacht wird, ka
 - **Anti-Thundering Herd** – Mutex + Semaphor-Schutz gegen gleichzeitige Wiederholungsstürme
 - **Combo-Fallback-Ketten** – Wenn der primäre Anbieter ausfällt, fällt er automatisch durch die Kette, ohne dass ein Eingreifen erforderlich ist
 - **Combo Circuit Breaker** – Deaktiviert automatisch ausgefallene Anbieter innerhalb einer Combo-Kette
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Gesundheits-Dashboard** – Betriebszeitüberwachung, Leistungsschalterzustände, Sperren, Cache-Statistiken, p50/p95/p99-Latenz
 
 </details>
@@ -881,10 +882,10 @@ OmniRoute v2.0 ist als Betriebsplattform konzipiert und nicht nur als Relay-Prox
 ### 🤖 Agenten- und Protokolloperationen (v2.0)| Funktion | Was es tut |
 
 | ------------------------------------ | -------------------------------------------------------------------------------- |
-| 🔧 **MCP-Server (16 Tools)** | IDE-/Agent-Tools steuern Routing, Zustand, Kombinationen, Grenzwerte und Vorgänge | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`) 
+| 🔧 **MCP-Server (16 Tools)** | IDE-/Agent-Tools steuern Routing, Zustand, Kombinationen, Grenzwerte und Vorgänge | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`)
 | 🤝 **A2A-Server (JSON-RPC + SSE)** | Ausführung von Agent-zu-Agent-Aufgaben mit Synchronisierungs- und Streaming-Flows |
 | 🧭 **Consolidated Endpoints Page** | Dedizierte Verwaltungsseiten (`/dashboard/mcp`, `/dashboard/a2a`) |
-| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF)        |
+| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF) |
 | 🛰️ **MCP Runtime Heartbeat** | Echter Prozessstatus (PID, Betriebszeit, Heartbeat-Alter, Transport, Scope-Modus) |
 | 📋 **MCP Audit Trail** | Filterbare Audit-Protokolle mit Erfolg/Misserfolg und Schlüsselzuordnung |
 | 🔐 **Durchsetzung des MCP-Geltungsbereichs** | 9 granulare Umfangsberechtigungen für kontrollierten Werkzeugzugriff |

@@ -290,10 +290,12 @@ Furnizorii de AI pot deveni instabili, pot returna erori 5xx sau pot atinge limi
 **Cum o rezolvă OmniRoute:**
 
 - **Circuit Breaker per furnizor** - Deschidere/închidere automată cu praguri configurabile și răcire (Închis/Deschis/Pe jumătate deschis)
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Backoff exponențial** — Întârzieri progresive ale reîncercării
 - **Anti-Thundering Herd** — Mutex + protecție semafor împotriva furtunilor concurente de reîncercare
 - **Combo Fallback Chains** — Dacă furnizorul principal eșuează, trece automat prin lanț fără nicio intervenție
 - **Combo Circuit Breaker** — Dezactivează automat furnizorii care eșuează dintr-un lanț combinat
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Tabloul de bord pentru sănătate** — Monitorizare timp de funcționare, stări întrerupătoare de circuit, blocări, statistici cache, latență p50/p95/p99
 
 </details>

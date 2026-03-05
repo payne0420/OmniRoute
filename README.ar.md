@@ -287,6 +287,7 @@ Result: Never stop coding, minimal cost
 - **مكافحة الرعد القطيع** — Mutex + حماية الإشارة ضد عواصف إعادة المحاولة المتزامنة
 - **السلاسل الاحتياطية المجمعة** — إذا فشل الموفر الأساسي، فسيتم دخوله تلقائيًا عبر السلسلة دون أي تدخل
 - **Combo Circuit Breaker** — التعطيل التلقائي لمقدمي الخدمات الفاشلين ضمن سلسلة التحرير والسرد
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **لوحة معلومات الصحة** — مراقبة وقت التشغيل، وحالات قاطع الدائرة، وعمليات التأمين، وإحصائيات ذاكرة التخزين المؤقت، ووقت الاستجابة p50/p95/p99
 
 </details>
@@ -874,10 +875,10 @@ npm run electron:build:linux   # Linux (.AppImage)
 ### 🤖 عمليات الوكيل والبروتوكول (الإصدار 2.0)| ميزة | ماذا يفعل |
 
 | ------------------------------------ | -------------------------------------------------------------------------------- |
-| 🔧 **خادم MCP (16 أداة)** | تتحكم أدوات IDE/agent في التوجيه والصحة والمجموعات والحدود والعمليات | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`) 
+| 🔧 **خادم MCP (16 أداة)** | تتحكم أدوات IDE/agent في التوجيه والصحة والمجموعات والحدود والعمليات | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`)
 | 🤝 **خادم A2A (JSON-RPC + SSE)** | تنفيذ المهام من وكيل إلى وكيل مع تدفقات المزامنة والتدفق |
-| 🧭 **Consolidated Endpoints Page**   | Tabbed management page with Endpoint Proxy, MCP, A2A, and API Endpoints tabs    |
-| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF)        |
+| 🧭 **Consolidated Endpoints Page** | Tabbed management page with Endpoint Proxy, MCP, A2A, and API Endpoints tabs |
+| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF) |
 | 🛰️ **نبضات وقت تشغيل MCP** | حالة العملية الحقيقية (معرف المنتج، وقت التشغيل، عمر نبضات القلب، النقل، وضع النطاق) |
 | 📋 **مسار تدقيق MCP** | سجلات التدقيق القابلة للتصفية مع النجاح/الفشل والإسناد الرئيسي |
 | 🔐 **تنفيذ نطاق MCP** | 9 أذونات نطاق تفصيلية للوصول إلى الأدوات الخاضعة للرقابة |

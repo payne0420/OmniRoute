@@ -283,10 +283,12 @@ Når en AI-gateway eksponeres for netværket (LAN, VPS, Docker), kan enhver med 
 **Sådan løser OmniRoute det:**
 
 - **Circuit Breaker pr. udbyder** — Automatisk åbning/lukning med konfigurerbare tærskler og nedkøling (lukket/åbent/halvt åbent)
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Eksponentiel backoff** — Progressive forsinkelser af genforsøg
 - **Anti-tordenbesætning** — Mutex + semaforbeskyttelse mod samtidige genforsøgsstorme
 - **Combo Fallback Chains** — Hvis den primære udbyder fejler, falder den automatisk gennem kæden uden indgriben
 - **Combo Circuit Breaker** - Deaktiverer automatisk fejlende udbydere i en kombinationskæde
+  | 🎯 **Endpoint-Aware Models** | Custom models declare supported endpoints + API format |
 - **Health Dashboard** — Oppetidsovervågning, strømafbrydertilstande, lockouts, cachestatistik, p50/p95/p99 latency
 
 </details>
@@ -875,10 +877,10 @@ OmniRoute v2.0 er bygget som en operationel platform, ikke kun en relæ-proxy.
 ### 🤖 Agent- og protokoloperationer (v2.0)| Funktion | Hvad det gør |
 
 | ------------------------------------ | ---------------------------------------------------------------------------------- |
-| 🔧 **MCP-server (16 værktøjer)** | IDE/agent-værktøjer kontrollerer routing, sundhed, kombinationer, grænser og operationer | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`) 
+| 🔧 **MCP-server (16 værktøjer)** | IDE/agent-værktøjer kontrollerer routing, sundhed, kombinationer, grænser og operationer | IDE/agent tools via 3 transports: stdio, SSE (`/api/mcp/sse`), Streamable HTTP (`/api/mcp/stream`)
 | 🤝 **A2A-server (JSON-RPC + SSE)** | Agent-til-agent opgaveudførelse med synkronisering og streaming flows |
 | 🧭 **Consolidated Endpoints Page** | Dedikerede administrationssider (`/dashboard/mcp`, `/dashboard/a2a`) |
-| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF)        |
+| 🎚️ **Service Enable/Disable Toggles** | ON/OFF switches for MCP and A2A with settings persistence (default: OFF) |
 | 🛰️ **MCP Runtime Heartbeat** | Reel processtatus (pid, oppetid, hjerteslagsalder, transport, omfangstilstand) |
 | 📋 **MCP Audit Trail** | Filtrerbare revisionslogfiler med succes/fejl og nøgletilskrivning |
 | 🔐 **MCP Scope Enforcement** | 9 granulære omfangstilladelser til kontrolleret værktøjsadgang |
