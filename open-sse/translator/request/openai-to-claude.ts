@@ -493,7 +493,13 @@ function convertOpenAIToolChoice(choice) {
     if (choice.type === "function" && choice.function?.name) {
       return { type: "tool", name: choice.function.name };
     }
-    return choice;
+    // Map OpenAI string types to Claude equivalents
+    if (choice.type === "auto" || choice.type === "none") return { type: "auto" };
+    if (choice.type === "required" || choice.type === "any") return { type: CLAUDE_TOOL_CHOICE_REQUIRED };
+    // If type is "tool" already (Claude-native), pass through
+    if (choice.type === "tool" && choice.name) return choice;
+    // Fallback: unknown object type — default to auto to avoid 400 errors
+    return { type: "auto" };
   }
   if (choice === "auto" || choice === "none") return { type: "auto" };
   if (choice === "required") return { type: CLAUDE_TOOL_CHOICE_REQUIRED };
