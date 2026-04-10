@@ -31,18 +31,26 @@ export function parseEnvFile(filePath) {
   const entries = new Map();
 
   for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
+    const parsed = parseEnvEntry(line);
+    if (!parsed) continue;
 
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex < 1) continue;
-
-    const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim();
+    const [key, value] = parsed;
     entries.set(key, value);
   }
 
   return entries;
+}
+
+function parseEnvEntry(line) {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+
+  const eqIndex = trimmed.indexOf("=");
+  if (eqIndex < 1) return null;
+
+  const key = trimmed.slice(0, eqIndex).trim();
+  const value = trimmed.slice(eqIndex + 1).trim();
+  return [key, value];
 }
 
 function parseExampleEntries(content, scope = "full") {
@@ -55,21 +63,19 @@ function parseExampleEntries(content, scope = "full") {
     for (const line of lines) {
       const trimmed = line.trim();
 
-      if (trimmed.includes("OAUTH PROVIDER CREDENTIALS")) {
+      if (/OAUTH PROVIDER CREDENTIALS/i.test(trimmed)) {
         inOauthSection = true;
         continue;
       }
 
       if (!inOauthSection) continue;
 
-      if (trimmed.includes("Provider User-Agent Overrides")) break;
-      if (!trimmed || trimmed.startsWith("#")) continue;
+      if (/Provider User-Agent Overrides/i.test(trimmed)) break;
 
-      const eqIndex = trimmed.indexOf("=");
-      if (eqIndex < 1) continue;
+      const parsed = parseEnvEntry(line);
+      if (!parsed) continue;
 
-      const key = trimmed.slice(0, eqIndex).trim();
-      const value = trimmed.slice(eqIndex + 1).trim();
+      const [key, value] = parsed;
       entries.set(key, value);
     }
 
@@ -77,14 +83,10 @@ function parseExampleEntries(content, scope = "full") {
   }
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
+    const parsed = parseEnvEntry(line);
+    if (!parsed) continue;
 
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex < 1) continue;
-
-    const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim();
+    const [key, value] = parsed;
     entries.set(key, value);
   }
 
@@ -168,14 +170,15 @@ export function syncEnv({ rootDir, quiet = false, scope = "full" } = {}) {
       return { created: true, added: exampleEntries.size };
     }
 
+    const { missingEntries } = getEnvSyncPlan({ rootDir: root, scope });
     const content = [
       "# ── Auto-added by sync-env (oauth defaults) ──",
-      ...Array.from(exampleEntries, ([key, value]) => `${key}=${value}`),
+      ...missingEntries.map((entry) => `${entry.key}=${entry.value}`),
       "",
     ].join("\n");
     writeFileSync(envPath, content, "utf8");
-    log(`✨ Created .env with oauth defaults (${exampleEntries.size} keys)`);
-    return { created: true, added: exampleEntries.size };
+    log(`✨ Created .env with oauth defaults (${missingEntries.length} keys)`);
+    return { created: true, added: missingEntries.length };
   }
 
   const { missingEntries } = getEnvSyncPlan({ rootDir: root, scope });
