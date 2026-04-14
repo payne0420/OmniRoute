@@ -255,7 +255,10 @@ async function checkConnection(conn) {
   };
 
   const hideLogs = await shouldHideLogs();
-  const proxyConfig = await resolveProxyForConnection(conn.id);
+  // resolveProxyForConnection returns { proxy, level, levelId } — unwrap to pass the inner
+  // proxy config object (with .host) to getAccessToken. Passing the full wrapper causes
+  // [ProxyDispatcher] Context proxy host is required (#1187/#1218).
+  const proxyResult = await resolveProxyForConnection(conn.id);
   const result = await getAccessToken(
     conn.provider,
     credentials,
@@ -270,7 +273,7 @@ async function checkConnection(conn) {
         if (!hideLogs) console.error(`${LOG_PREFIX} [${tag}] ${msg}`, extra || "");
       },
     },
-    proxyConfig
+    proxyResult?.proxy || null
   );
 
   const now = new Date().toISOString();
