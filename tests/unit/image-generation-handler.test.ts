@@ -1633,3 +1633,52 @@ test("handleImageGeneration (codex) propagates upstream HTTP errors", async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test("handleImageGeneration (codex) forwards size and maps DALL-E quality to hosted tool config", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (_url, options = {}) => {
+    captured = JSON.parse(String(options.body || "{}"));
+    const sse = buildCodexSSE([
+      { type: "image_generation_call", id: "ig_1", status: "completed", result: "YWJj" },
+    ]);
+    return new Response(sse, { status: 200 });
+  };
+
+  try {
+    await handleImageGeneration({
+      body: {
+        model: "codex/gpt-5.4",
+        prompt: "kitten",
+        size: "1024x1792",
+        quality: "hd",
+      },
+      credentials: { accessToken: "codex-token" },
+      log: null,
+    });
+    assert.deepEqual(captured.tools, [
+      {
+        type: "image_generation",
+        output_format: "png",
+        size: "1024x1792",
+        quality: "high",
+      },
+    ]);
+
+    await handleImageGeneration({
+      body: { model: "codex/gpt-5.4", prompt: "kitten", quality: "standard" },
+      credentials: { accessToken: "codex-token" },
+      log: null,
+    });
+    assert.equal(captured.tools[0].quality, "medium");
+
+    await handleImageGeneration({
+      body: { model: "codex/gpt-5.4", prompt: "kitten" },
+      credentials: { accessToken: "codex-token" },
+      log: null,
+    });
+    assert.deepEqual(captured.tools, [{ type: "image_generation", output_format: "png" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

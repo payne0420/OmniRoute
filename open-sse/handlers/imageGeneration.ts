@@ -1369,6 +1369,16 @@ export function extractImageGenerationCalls(
   return results;
 }
 
+// The image_generation hosted tool accepts { "auto" | "low" | "medium" | "high" }
+// for `quality`. DALL-E clients often send "standard" / "hd". Map legacy values
+// so OpenWebUI's quality dropdown doesn't silently get rejected upstream.
+function mapDalleQualityToImageTool(value: string): string {
+  const normalized = value.toLowerCase();
+  if (normalized === "standard") return "medium";
+  if (normalized === "hd") return "high";
+  return normalized;
+}
+
 async function handleCodexImageGeneration({
   model,
   provider,
@@ -1415,6 +1425,18 @@ async function handleCodexImageGeneration({
       ? (credentials.providerSpecificData as Record<string, unknown>).workspaceId
       : undefined;
 
+  // Forward size/quality from the DALL-E-style body into the hosted tool so
+  // OpenWebUI's size/quality selectors actually take effect. Everything else
+  // (model, n, background, moderation, output_compression) is left to the
+  // Codex backend's defaults — today that's `gpt-image-2`.
+  const toolConfig: Record<string, unknown> = { type: "image_generation", output_format: "png" };
+  if (typeof body.size === "string" && body.size.trim()) {
+    toolConfig.size = body.size.trim();
+  }
+  if (typeof body.quality === "string" && body.quality.trim()) {
+    toolConfig.quality = mapDalleQualityToImageTool(body.quality.trim());
+  }
+
   const upstreamBody: Record<string, unknown> = {
     model,
     instructions:
@@ -1425,7 +1447,7 @@ async function handleCodexImageGeneration({
         content: [{ type: "input_text", text: prompt }],
       },
     ],
-    tools: [{ type: "image_generation", output_format: "png" }],
+    tools: [toolConfig],
     stream: true,
     store: false,
   };
