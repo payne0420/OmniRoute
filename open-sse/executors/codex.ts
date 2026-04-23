@@ -324,6 +324,23 @@ function stripStoredItemReferences(body: Record<string, unknown>): void {
   }
 }
 
+// Responses-API hosted tool types that OpenAI executes server-side (e.g.
+// `image_generation` backed by gpt-image-1 under ChatGPT auth). These arrive shaped as
+// `{ type, ...params }` with no `function` object and no `name` — Codex CLI injects
+// `{ type: "image_generation", output_format: "png" }` when [features] image_generation = true.
+// Keep them through `normalizeCodexTools` so upstream can execute them.
+const CODEX_HOSTED_TOOL_TYPES: ReadonlySet<string> = new Set([
+  "image_generation",
+  "web_search",
+  "web_search_preview",
+  "file_search",
+  "computer",
+  "computer_use_preview",
+  "code_interpreter",
+  "mcp",
+  "local_shell",
+]);
+
 function normalizeCodexTools(body: Record<string, unknown>): void {
   if (!Array.isArray(body.tools)) return;
 
@@ -334,7 +351,18 @@ function normalizeCodexTools(body: Record<string, unknown>): void {
     }
 
     const tool = toolValue as Record<string, unknown>;
-    if (tool.type !== "function") {
+    const toolType = typeof tool.type === "string" ? tool.type : "";
+
+    if (toolType !== "function") {
+      const hasFunctionObject = tool.function && typeof tool.function === "object";
+      const hasName = typeof tool.name === "string";
+      if (!toolType || hasFunctionObject || hasName) {
+        return false;
+      }
+      if (CODEX_HOSTED_TOOL_TYPES.has(toolType)) {
+        return true;
+      }
+      console.debug(`[Codex] dropping unknown hosted tool type: ${toolType}`);
       return false;
     }
 
