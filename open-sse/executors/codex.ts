@@ -324,6 +324,14 @@ function stripStoredItemReferences(body: Record<string, unknown>): void {
   }
 }
 
+function hasImageGenerationTool(body: Record<string, unknown>): boolean {
+  if (!Array.isArray(body.tools)) return false;
+  return body.tools.some((tool) => {
+    if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
+    return (tool as Record<string, unknown>).type === "image_generation";
+  });
+}
+
 // Responses-API hosted tool types that OpenAI executes server-side (e.g.
 // `image_generation` backed by gpt-image-1 under ChatGPT auth). These arrive shaped as
 // `{ type, ...params }` with no `function` object and no `name` — Codex CLI injects
@@ -623,6 +631,8 @@ export class CodexExecutor extends BaseExecutor {
     // Proxy clients (e.g. OpenClaw) rely on response chaining via previous_response_id,
     // which requires store=true so that response items are persisted.
     // If the client explicitly sets store, respect it. Otherwise default to true.
+    // Exception: when the request uses the image_generation hosted tool, the Codex
+    // backend rejects store=true ("Store must be set to false"), so default to false.
     const explicitStoreSetting =
       credentials?.providerSpecificData &&
       typeof credentials.providerSpecificData === "object" &&
@@ -632,7 +642,7 @@ export class CodexExecutor extends BaseExecutor {
     if (explicitStoreSetting === false) {
       body.store = false;
     } else if (body.store === undefined) {
-      body.store = true;
+      body.store = hasImageGenerationTool(body) ? false : true;
     }
 
     // Codex Responses only supports function tools with non-empty names.

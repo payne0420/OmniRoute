@@ -456,3 +456,44 @@ test("CodexExecutor.transformRequest drops hosted tools that also declare name o
 
   assert.deepEqual(result.tools, [{ type: "image_generation", output_format: "png" }]);
 });
+
+test("CodexExecutor.transformRequest defaults store to false when image_generation tool is present", () => {
+  const executor = new CodexExecutor();
+
+  const withImageGen = executor.transformRequest(
+    "gpt-5.3-codex",
+    {
+      _nativeCodexPassthrough: true,
+      input: [],
+      tools: [{ type: "image_generation", output_format: "png" }],
+    },
+    true,
+    { requestEndpointPath: "/responses" }
+  );
+  assert.equal(withImageGen.store, false);
+
+  const withoutImageGen = executor.transformRequest(
+    "gpt-5.3-codex",
+    {
+      _nativeCodexPassthrough: true,
+      input: [],
+      tools: [{ type: "function", function: { name: "shell" } }],
+    },
+    true,
+    { requestEndpointPath: "/responses" }
+  );
+  assert.equal(withoutImageGen.store, true);
+
+  const explicitTrue = executor.transformRequest(
+    "gpt-5.3-codex",
+    {
+      _nativeCodexPassthrough: true,
+      input: [],
+      store: true,
+      tools: [{ type: "image_generation", output_format: "png" }],
+    },
+    true,
+    { requestEndpointPath: "/responses" }
+  );
+  assert.equal(explicitTrue.store, true);
+});
