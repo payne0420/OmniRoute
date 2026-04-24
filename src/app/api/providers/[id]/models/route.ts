@@ -799,8 +799,8 @@ export async function GET(
     };
 
     const buildApiDiscoveryResponse = async (models: any[]) => {
-      if (Array.isArray(models) && models.length > 0) {
-        await persistDiscoveredModels(provider, connectionId, models);
+      const discoveredModels = await persistDiscoveredModels(provider, connectionId, models);
+      if (discoveredModels.length > 0) {
         return buildResponse({
           provider,
           connectionId,
@@ -809,10 +809,9 @@ export async function GET(
         });
       }
 
-      const fallback = buildDiscoveryFallbackResponse({
-        cacheWarning: "No remote models discovered — using cached catalog",
-        localWarning: "No remote models discovered — using local catalog",
-      });
+      const fallback = buildLocalCatalogResponse(
+        "No remote models discovered — using local catalog"
+      );
       if (fallback) return fallback;
 
       return buildResponse({

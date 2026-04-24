@@ -607,6 +607,32 @@ test("provider models route falls back to cached models when a refresh fails", a
   assert.equal(fetchCalls, 1);
 });
 
+test("provider models route clears cached discovery when a refresh returns no remote models", async () => {
+  const connection = await seedConnection("opencode-go", {
+    apiKey: "opencode-go-key",
+  });
+  await modelsDb.replaceSyncedAvailableModelsForConnection("opencode-go", connection.id, [
+    { id: "cached-go", name: "Cached Go", source: "api-sync" },
+  ]);
+
+  globalThis.fetch = async () => {
+    return Response.json({ data: [] });
+  };
+
+  const response = await callRoute(connection.id, "?refresh=true");
+  const body = (await response.json()) as any;
+  const cachedModels = await modelsDb.getSyncedAvailableModelsForConnection(
+    "opencode-go",
+    connection.id
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(body.source, "local_catalog");
+  assert.match(body.warning, /no remote models discovered/i);
+  assert.ok(body.models.every((model) => model.id !== "cached-go"));
+  assert.deepEqual(cachedModels, []);
+});
+
 test("provider models route honors autoFetchModels=false and skips remote discovery", async () => {
   const connection = await seedConnection("opencode-go", {
     apiKey: "opencode-go-key",
