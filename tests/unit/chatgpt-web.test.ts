@@ -1045,6 +1045,97 @@ test("Cookie rotation: chunked → unchunked drops stale chunks", async () => {
   }
 });
 
+test("Cookie rotation: same-value chunks + new chunk added still propagates", async () => {
+  // Edge case: NextAuth keeps the existing chunks identical but adds a new
+  // one (e.g., session payload grew, original .0/.1 → refreshed .0/.1/.2).
+  // The earlier `mutated`-guard logic returned null in this case because the
+  // intersection of names had identical values, dropping the new .2 chunk
+  // on the floor. Detect by family-shape change and propagate.
+  reset();
+  const m = installMockFetch({
+    session: {
+      status: 200,
+      body: {
+        accessToken: "jwt-abc",
+        expires: new Date(Date.now() + 3600_000).toISOString(),
+        user: { id: "user-1" },
+      },
+      setCookie:
+        "__Secure-next-auth.session-token.0=A; Path=/; HttpOnly, " +
+        "__Secure-next-auth.session-token.1=B; Path=/; HttpOnly, " +
+        "__Secure-next-auth.session-token.2=NEW2; Path=/; HttpOnly",
+    },
+  });
+  try {
+    let refreshed = null;
+    const executor = new ChatGptWebExecutor();
+    await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "hi" }] },
+      stream: false,
+      credentials: {
+        apiKey:
+          "__Secure-next-auth.session-token.0=A; " +
+          "__Secure-next-auth.session-token.1=B; " +
+          "cf_clearance=CFCLEAR",
+      },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+      onCredentialsRefreshed: (creds) => {
+        refreshed = creds;
+      },
+    });
+    assert.ok(refreshed, "rotation that adds a chunk must propagate");
+    assert.match(refreshed.apiKey, /session-token\.0=A/);
+    assert.match(refreshed.apiKey, /session-token\.1=B/);
+    assert.match(refreshed.apiKey, /session-token\.2=NEW2/, "new .2 chunk must be present");
+    assert.match(refreshed.apiKey, /cf_clearance=CFCLEAR/);
+  } finally {
+    m.restore();
+  }
+});
+
+test("Cookie rotation: identical session-token returns null (no-op)", async () => {
+  // Inverse of the above: if Set-Cookie returns the IDENTICAL session-token
+  // set the original already had, mergeRefreshedCookie should return null so
+  // the executor doesn't fire a no-op persist callback that just rewrites the
+  // same data to the DB.
+  reset();
+  const m = installMockFetch({
+    session: {
+      status: 200,
+      body: {
+        accessToken: "jwt-abc",
+        expires: new Date(Date.now() + 3600_000).toISOString(),
+        user: { id: "user-1" },
+      },
+      setCookie:
+        "__Secure-next-auth.session-token.0=A; Path=/; HttpOnly, " +
+        "__Secure-next-auth.session-token.1=B; Path=/; HttpOnly",
+    },
+  });
+  try {
+    let refreshed = null;
+    const executor = new ChatGptWebExecutor();
+    await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "hi" }] },
+      stream: false,
+      credentials: {
+        apiKey: "__Secure-next-auth.session-token.0=A; __Secure-next-auth.session-token.1=B",
+      },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+      onCredentialsRefreshed: (creds) => {
+        refreshed = creds;
+      },
+    });
+    assert.equal(refreshed, null, "identical Set-Cookie must not fire callback");
+  } finally {
+    m.restore();
+  }
+});
+
 test("Cookie rotation: returns null when Set-Cookie has no session-token", async () => {
   // When NextAuth doesn't rotate (Set-Cookie sets only unrelated cookies, or
   // returns the same session-token value), the callback shouldn't fire.

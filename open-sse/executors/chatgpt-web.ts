@@ -197,8 +197,7 @@ function mergeRefreshedCookie(
 
   const pairs = blob.split(/;\s*/).filter(Boolean);
   const result: string[] = [];
-  let mutated = false;
-  let droppedStale = false;
+  const oldFamily = new Map<string, string>();
   for (const pair of pairs) {
     const eqIdx = pair.indexOf("=");
     if (eqIdx < 0) {
@@ -212,8 +211,7 @@ function mergeRefreshedCookie(
     // chunked→unchunked rotations, where keeping the old name would leave
     // the stale token visible alongside the new one.
     if (SESSION_TOKEN_FAMILY_RE.test(name)) {
-      if (!refreshed.has(name) || refreshed.get(name) !== value) mutated = true;
-      droppedStale = true;
+      oldFamily.set(name, value);
       continue;
     }
     result.push(`${name}=${value}`);
@@ -222,7 +220,19 @@ function mergeRefreshedCookie(
   for (const [name, value] of refreshed) {
     result.push(`${name}=${value}`);
   }
-  if (!droppedStale) mutated = true; // refreshed chunks were entirely new
+  // The merge is a meaningful rotation if the family shape changed (different
+  // set of names — e.g., a new `.2` chunk appeared) OR any name's value
+  // differs. If both sets are identical, return null so the executor doesn't
+  // fire a no-op persist callback.
+  let mutated = oldFamily.size !== refreshed.size;
+  if (!mutated) {
+    for (const [name, value] of oldFamily) {
+      if (refreshed.get(name) !== value) {
+        mutated = true;
+        break;
+      }
+    }
+  }
   return mutated ? result.join("; ") : null;
 }
 
