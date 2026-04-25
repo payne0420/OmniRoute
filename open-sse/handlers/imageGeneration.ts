@@ -19,6 +19,8 @@ import { randomUUID } from "crypto";
 import { getImageProvider, parseImageModel } from "../config/imageRegistry.ts";
 import { mapImageSize } from "../translator/image/sizeMapper.ts";
 import { getCodexClientVersion, getCodexUserAgent } from "../config/codexClient.ts";
+import { ChatGptWebExecutor } from "../executors/chatgpt-web.ts";
+import { getChatGptImage } from "../services/chatgptImageCache.ts";
 import { saveCallLog } from "@/lib/usageDb";
 import {
   submitComfyWorkflow,
@@ -113,7 +115,14 @@ const FAL_PRESET_SIZES = {
  * @param {object} options.log - Logger
  * @param {string} [options.resolvedProvider] - Pre-resolved provider ID (from route layer custom model resolution)
  */
-export async function handleImageGeneration({ body, credentials, log, resolvedProvider = null }) {
+export async function handleImageGeneration({
+  body,
+  credentials,
+  log,
+  resolvedProvider = null,
+  signal = null,
+  clientHeaders = null,
+}) {
   let provider, model;
 
   if (resolvedProvider) {
@@ -254,6 +263,18 @@ export async function handleImageGeneration({ body, credentials, log, resolvedPr
       body,
       credentials,
       log,
+    });
+  }
+
+  if (providerConfig.format === "chatgpt-web") {
+    return handleChatGptWebImageGeneration({
+      model,
+      provider,
+      body,
+      credentials,
+      log,
+      signal,
+      clientHeaders,
     });
   }
 
@@ -535,6 +556,159 @@ async function handleOpenAIImageGeneration({
   }).catch(() => {});
 
   return result;
+}
+
+const CHATGPT_WEB_IMAGE_MARKDOWN_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+const CHATGPT_WEB_IMAGE_ID_RE = /\/v1\/chatgpt-web\/image\/([a-f0-9]{16,64})(?=[?\s"'<>)]|$)/i;
+
+function extractMarkdownImageUrls(text: string): string[] {
+  const urls: string[] = [];
+  CHATGPT_WEB_IMAGE_MARKDOWN_RE.lastIndex = 0;
+  for (const match of text.matchAll(CHATGPT_WEB_IMAGE_MARKDOWN_RE)) {
+    if (match[1]) urls.push(match[1]);
+  }
+  return urls;
+}
+
+function buildChatGptWebImagePrompt(body): string {
+  const prompt = String(body.prompt || "").trim();
+  const details: string[] = [`Create an image for this prompt: ${prompt}`];
+  if (typeof body.size === "string" && body.size.trim()) {
+    details.push(`Requested size: ${body.size.trim()}.`);
+  }
+  if (typeof body.quality === "string" && body.quality.trim()) {
+    details.push(`Requested quality: ${body.quality.trim()}.`);
+  }
+  if (typeof body.style === "string" && body.style.trim()) {
+    details.push(`Requested style: ${body.style.trim()}.`);
+  }
+  return details.join("\n");
+}
+
+async function handleChatGptWebImageGeneration({
+  model,
+  provider,
+  body,
+  credentials,
+  log,
+  signal,
+  clientHeaders,
+}) {
+  const startTime = Date.now();
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  if (!prompt) {
+    return saveImageErrorResult({
+      provider,
+      model,
+      status: 400,
+      startTime,
+      error: "Prompt is required for ChatGPT Web image generation",
+    });
+  }
+
+  if (!credentials?.apiKey) {
+    return saveImageErrorResult({
+      provider,
+      model,
+      status: 401,
+      startTime,
+      error: "ChatGPT Web credentials missing session cookie",
+    });
+  }
+
+  const requestedCount =
+    Number.isInteger(body.n) && (body.n as number) > 0 ? (body.n as number) : 1;
+  if (log && requestedCount > 1) {
+    log.warn(
+      "IMAGE",
+      `ChatGPT Web returns one image per chat turn; requested n=${requestedCount} will run sequentially`
+    );
+  }
+
+  const wantsBase64 = body.response_format === "b64_json";
+  const images: Array<{ url?: string; b64_json?: string }> = [];
+  const requestBody = {
+    model,
+    prompt: prompt.slice(0, 500),
+    size: body.size || undefined,
+    quality: body.quality || undefined,
+  };
+
+  for (let i = 0; i < requestedCount; i++) {
+    const executor = new ChatGptWebExecutor();
+    const result = await executor.execute({
+      model,
+      body: {
+        messages: [{ role: "user", content: buildChatGptWebImagePrompt(body) }],
+      },
+      stream: false,
+      credentials,
+      signal,
+      log,
+      clientHeaders,
+    });
+
+    const responseText = await result.response.text();
+    if (result.response.status >= 400) {
+      return saveImageErrorResult({
+        provider,
+        model,
+        status: result.response.status,
+        startTime,
+        error: responseText,
+        requestBody,
+      });
+    }
+
+    let content = "";
+    try {
+      const json = JSON.parse(responseText);
+      content = String(json?.choices?.[0]?.message?.content || "");
+    } catch {
+      content = responseText;
+    }
+
+    const urls = extractMarkdownImageUrls(content);
+    if (urls.length === 0) {
+      return saveImageErrorResult({
+        provider,
+        model,
+        status: 502,
+        startTime,
+        error: `ChatGPT Web completed without returning image markdown: ${content.slice(0, 300)}`,
+        requestBody,
+      });
+    }
+
+    for (const url of urls) {
+      if (!wantsBase64) {
+        images.push({ url });
+        continue;
+      }
+      const id = url.match(CHATGPT_WEB_IMAGE_ID_RE)?.[1];
+      const cached = id ? getChatGptImage(id) : null;
+      if (!cached) {
+        return saveImageErrorResult({
+          provider,
+          model,
+          status: 502,
+          startTime,
+          error: "ChatGPT Web image bytes expired before b64_json conversion",
+          requestBody,
+        });
+      }
+      images.push({ b64_json: cached.bytes.toString("base64") });
+    }
+  }
+
+  return saveImageSuccessResult({
+    provider,
+    model,
+    startTime,
+    requestBody,
+    responseBody: { images_count: images.length },
+    images,
+  });
 }
 
 async function handleFalAIImageGeneration({

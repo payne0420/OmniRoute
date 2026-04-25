@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { ChatGptWebExecutor, __resetChatGptWebCachesForTesting } =
+const { ChatGptWebExecutor, __derivePublicBaseUrlForTesting, __resetChatGptWebCachesForTesting } =
   await import("../../open-sse/executors/chatgpt-web.ts");
 const { getExecutor, hasSpecializedExecutor } = await import("../../open-sse/executors/index.ts");
 const { __setTlsFetchOverrideForTesting, looksLikeSse, TlsClientUnavailableError } =
@@ -24,14 +24,58 @@ function makeHeaders(map = {}) {
   return h;
 }
 
+async function withEnv(overrides, fn) {
+  const keys = [
+    "OMNIROUTE_PUBLIC_BASE_URL",
+    "OMNIROUTE_BASE_URL",
+    "NEXT_PUBLIC_BASE_URL",
+    "BASE_URL",
+    "PORT",
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+      const value = overrides[key];
+      if (value == null) delete process.env[key];
+      else process.env[key] = String(value);
+    } else {
+      delete process.env[key];
+    }
+  }
+
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value == null) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 /** Dispatch the TLS-impersonating fetch by URL pathname.
  *  Default: session 200 with accessToken, sentinel 200 no PoW, conv 200 empty stream. */
-function installMockFetch({ session, sentinel, conv, dpl, onSession, onSentinel, onConv } = {}) {
+function installMockFetch({
+  session,
+  sentinel,
+  conv,
+  dpl,
+  fileDownload,
+  attachmentDownload,
+  onSession,
+  onSentinel,
+  onConv,
+  onFileDownload,
+  onAttachmentDownload,
+} = {}) {
   const calls = {
     session: 0,
     dpl: 0,
     sentinel: 0,
     conv: 0,
+    fileDownload: 0,
+    attachmentDownload: 0,
     urls: [],
     headers: [],
     bodies: [],
@@ -95,6 +139,46 @@ function installMockFetch({ session, sentinel, conv, dpl, onSession, onSentinel,
         text: JSON.stringify(cfg.body || {}),
         body: null,
       };
+    }
+
+    // /backend-api/conversation/<conv_id>/attachment/<file_id>/download
+    // Must match BEFORE the conversation-endpoint regex below since the
+    // conv-prefix regex is broad.
+    {
+      const m1 = u.match(/\/backend-api\/conversation\/[^/]+\/attachment\/([^/]+)\/download/);
+      if (m1) {
+        calls.attachmentDownload++;
+        if (onAttachmentDownload) onAttachmentDownload(opts, m1[1]);
+        const cfg = attachmentDownload ?? {
+          status: 200,
+          body: { download_url: `https://files.oaiusercontent.com/${m1[1]}?sig=mock` },
+        };
+        return {
+          status: cfg.status,
+          headers: makeHeaders({ "Content-Type": "application/json" }),
+          text: typeof cfg.body === "string" ? cfg.body : JSON.stringify(cfg.body || {}),
+          body: null,
+        };
+      }
+    }
+
+    // /backend-api/files/<file_id>/download
+    {
+      const m1 = u.match(/\/backend-api\/files\/([^/]+)\/download/);
+      if (m1) {
+        calls.fileDownload++;
+        if (onFileDownload) onFileDownload(opts, m1[1]);
+        const cfg = fileDownload ?? {
+          status: 200,
+          body: { download_url: `https://files.oaiusercontent.com/${m1[1]}?sig=mock` },
+        };
+        return {
+          status: cfg.status,
+          headers: makeHeaders({ "Content-Type": "application/json" }),
+          text: typeof cfg.body === "string" ? cfg.body : JSON.stringify(cfg.body || {}),
+          body: null,
+        };
+      }
     }
 
     // Match only the exact conversation endpoint, not /conversations (plural — warmup).
@@ -183,6 +267,63 @@ test("ChatGptWebExecutor alias resolves to same type", () => {
 test("ChatGptWebExecutor sets correct provider name", () => {
   const executor = new ChatGptWebExecutor();
   assert.equal(executor.getProvider(), "chatgpt-web");
+});
+
+// ─── Public image URL derivation ────────────────────────────────────────────
+
+test("Image URL base: OMNIROUTE_PUBLIC_BASE_URL wins and strips accidental /v1", async () => {
+  await withEnv(
+    {
+      OMNIROUTE_PUBLIC_BASE_URL: " http://192.168.107.55:20128/v1/ ",
+      NEXT_PUBLIC_BASE_URL: "http://localhost:20128",
+    },
+    async () => {
+      assert.equal(
+        __derivePublicBaseUrlForTesting({ host: "localhost:20128" }),
+        "http://192.168.107.55:20128"
+      );
+    }
+  );
+});
+
+test("Image URL base: local NEXT_PUBLIC_BASE_URL does not mask LAN Host header", async () => {
+  await withEnv(
+    {
+      NEXT_PUBLIC_BASE_URL: "http://localhost:20128",
+      BASE_URL: "http://localhost:20128",
+    },
+    async () => {
+      assert.equal(
+        __derivePublicBaseUrlForTesting({ host: "192.168.107.55:20128" }),
+        "http://192.168.107.55:20128"
+      );
+    }
+  );
+});
+
+test("Image URL base: forwarded headers override raw Host", async () => {
+  await withEnv({}, async () => {
+    assert.equal(
+      __derivePublicBaseUrlForTesting({
+        host: "localhost:20128",
+        "x-forwarded-host": "omni.example.com",
+        "x-forwarded-proto": "https",
+      }),
+      "https://omni.example.com"
+    );
+  });
+});
+
+test("Image URL base: non-local OMNIROUTE_BASE_URL remains a compatibility fallback", async () => {
+  await withEnv({ OMNIROUTE_BASE_URL: "https://omni.example.com/v1" }, async () => {
+    assert.equal(__derivePublicBaseUrlForTesting(null), "https://omni.example.com");
+  });
+});
+
+test("Image URL base: falls back to localhost with PORT", async () => {
+  await withEnv({ PORT: "20129" }, async () => {
+    assert.equal(__derivePublicBaseUrlForTesting(null), "http://localhost:20129");
+  });
 });
 
 // ─── Token exchange path ────────────────────────────────────────────────────
@@ -869,6 +1010,8 @@ test("Request: payload has correct ChatGPT shape", async () => {
     const body = JSON.parse(m.calls.bodies[convIdx]);
     assert.equal(body.action, "next");
     assert.equal(body.model, "gpt-5-3");
+    // Plain text request → Temporary Chat stays ON. We disable it only for
+    // image-gen prompts (see "Image gen: image-intent prompts" tests below).
     assert.equal(body.history_and_training_disabled, true);
     // System message preserves the user-supplied system prompt; the user
     // message is the latest query.
@@ -891,6 +1034,17 @@ test("Provider registry: chatgpt-web is registered with gpt-5.3-instant model", 
   assert.equal(entry.format, "openai");
   assert.equal(entry.authHeader, "cookie");
   assert.ok(entry.models.find((m) => m.id === "gpt-5.3-instant"));
+});
+
+test("Image registry: cgpt-web/gpt-5.3-instant routes to ChatGPT Web image handler", async () => {
+  const { parseImageModel, getImageProvider } =
+    await import("../../open-sse/config/imageRegistry.ts");
+  const parsed = parseImageModel("cgpt-web/gpt-5.3-instant");
+  assert.equal(parsed.provider, "chatgpt-web");
+  assert.equal(parsed.model, "gpt-5.3-instant");
+  const provider = getImageProvider(parsed.provider);
+  assert.equal(provider.format, "chatgpt-web");
+  assert.equal(provider.authHeader, "cookie");
 });
 
 // ─── Cookie rotation preserves Cloudflare cookies ───────────────────────────
@@ -1331,4 +1485,641 @@ test("looksLikeSse: rejects non-SSE bodies that previously passed as 200", () =>
   assert.equal(looksLikeSse(""), false, "empty body");
   assert.equal(looksLikeSse("   \n\n"), false, "whitespace only");
   assert.equal(looksLikeSse("error: rate limit"), false, "non-SSE field name");
+});
+
+// ─── Image generation ──────────────────────────────────────────────────────
+
+/** Build a SSE event stream that mimics ChatGPT's image-generation reply.
+ *  Text turn first, then a finalized multimodal_text with one image_asset_pointer. */
+function imageGenEvents({ pointer, text = "Here's your kitten:" }) {
+  return [
+    {
+      conversation_id: "conv-img-1",
+      message: {
+        id: "msg-1",
+        author: { role: "assistant" },
+        content: { content_type: "text", parts: [text] },
+        status: "in_progress",
+      },
+    },
+    {
+      conversation_id: "conv-img-1",
+      message: {
+        id: "msg-1",
+        author: { role: "assistant" },
+        content: {
+          content_type: "multimodal_text",
+          parts: [
+            {
+              content_type: "image_asset_pointer",
+              asset_pointer: pointer,
+              width: 1024,
+              height: 1024,
+            },
+          ],
+        },
+        status: "finished_successfully",
+      },
+    },
+  ];
+}
+
+test("Image gen: file-service:// pointer resolves to download URL and is appended as markdown (non-streaming)", async () => {
+  reset();
+  const m = installMockFetch({
+    conv: { status: 200, events: imageGenEvents({ pointer: "file-service://file-kitten1" }) },
+  });
+  try {
+    const executor = new ChatGptWebExecutor();
+    const result = await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "generate an image of a kitten" }] },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    assert.equal(result.response.status, 200);
+    const json = await result.response.json();
+    const content = json.choices[0].message.content;
+    assert.match(content, /Here's your kitten:/);
+    assert.match(
+      content,
+      /!\[image\]\(https:\/\/files\.oaiusercontent\.com\/file-kitten1\?sig=mock\)/
+    );
+    assert.equal(m.calls.fileDownload, 1, "fetched download URL once");
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image gen: file-service:// pointer is appended in streaming SSE", async () => {
+  reset();
+  const m = installMockFetch({
+    conv: {
+      status: 200,
+      events: imageGenEvents({ pointer: "file-service://file-kitten2", text: "ok:" }),
+    },
+  });
+  try {
+    const executor = new ChatGptWebExecutor();
+    const result = await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "draw a kitten" }] },
+      stream: true,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    assert.equal(result.response.status, 200);
+    const reader = result.response.body.getReader();
+    const decoder = new TextDecoder();
+    let body = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      body += decoder.decode(value);
+    }
+    assert.match(
+      body,
+      /!\[image\]\(https:\/\/files\.oaiusercontent\.com\/file-kitten2\?sig=mock\)/
+    );
+    assert.match(body, /data: \[DONE\]/);
+    assert.equal(m.calls.fileDownload, 1);
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image gen: sediment:// pointer prefers /files/<id>/download over /attachment", async () => {
+  reset();
+  const m = installMockFetch({
+    conv: { status: 200, events: imageGenEvents({ pointer: "sediment://file-sed1" }) },
+  });
+  try {
+    const executor = new ChatGptWebExecutor();
+    const result = await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "make a kitten" }] },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    assert.equal(result.response.status, 200);
+    const json = await result.response.json();
+    const content = json.choices[0].message.content;
+    // The mock returns the signed URL via /files/<id>/download. We try
+    // that path first (it's the same kind of estuary URL chatgpt.com
+    // returns either way, and we care more about not hitting an extra
+    // round-trip); the /attachment endpoint is a fallback for when the
+    // primary 404s. The mock /files/ response also doubles as the image
+    // bytes that are cached behind the emitted OmniRoute image URL.
+    assert.match(content, /!\[image\]\(/, "image rendered");
+    assert.equal(m.calls.fileDownload, 1, "tried /files/ endpoint first");
+    assert.equal(m.calls.attachmentDownload, 0, "did not need /attachment fallback");
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image gen: failed download URL is dropped silently — no broken markdown", async () => {
+  reset();
+  const m = installMockFetch({
+    conv: { status: 200, events: imageGenEvents({ pointer: "file-service://file-broken" }) },
+    fileDownload: { status: 500, body: { error: "boom" } },
+  });
+  try {
+    const executor = new ChatGptWebExecutor();
+    const result = await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "kitten" }] },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    assert.equal(result.response.status, 200);
+    const json = await result.response.json();
+    const content = json.choices[0].message.content;
+    // Text retained, markdown placeholder NOT emitted (no broken ![image]() link).
+    assert.match(content, /Here's your kitten:/);
+    assert.doesNotMatch(content, /!\[image\]\(/);
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image gen: image-intent prompt disables Temporary Chat", async () => {
+  reset();
+  const m = installMockFetch();
+  try {
+    const executor = new ChatGptWebExecutor();
+    await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "generate an image of a kitten" }] },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+    const body = JSON.parse(m.calls.bodies[convIdx]);
+    assert.equal(body.history_and_training_disabled, false, "Temporary Chat OFF for image gen");
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image gen: text-only prompt keeps Temporary Chat ON", async () => {
+  reset();
+  const m = installMockFetch();
+  try {
+    const executor = new ChatGptWebExecutor();
+    await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "what is the capital of France?" }] },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+    const body = JSON.parse(m.calls.bodies[convIdx]);
+    assert.equal(body.history_and_training_disabled, true, "Temporary Chat ON for text request");
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image gen: Open WebUI follow-up/title/tag tool prompts do NOT trigger image gen", async () => {
+  reset();
+  const toolPrompts = [
+    `### Task:\nSuggest 3-5 relevant follow-up questions...\n### Output:\nJSON format: { "follow_ups": ["Q1?", "Q2?", "Q3?"] }\n### Chat History:\n<chat_history>\nUSER: generate an image of a football game\nASSISTANT: _Generating image…_\n</chat_history>`,
+    `### Task:\nGenerate a concise, 3-5 word title with an emoji summarizing the chat history.\n### Output:\nJSON format: { "title": "your concise title here" }\n### Chat History:\n<chat_history>\nUSER: draw an image of a kitten\n</chat_history>`,
+    `### Task:\nGenerate 1-3 broad tags categorizing the main themes of the chat history\n### Output:\nJSON format: { "tags": ["tag1"] }\n### Chat History:\n<chat_history>\nUSER: render a logo for my startup\n</chat_history>`,
+  ];
+  for (const prompt of toolPrompts) {
+    const m = installMockFetch();
+    try {
+      const executor = new ChatGptWebExecutor();
+      await executor.execute({
+        model: "gpt-5.3-instant",
+        body: { messages: [{ role: "user", content: prompt }] },
+        stream: false,
+        credentials: { apiKey: "test" },
+        signal: AbortSignal.timeout(10_000),
+        log: null,
+      });
+      const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+      const body = JSON.parse(m.calls.bodies[convIdx]);
+      assert.equal(
+        body.history_and_training_disabled,
+        true,
+        `tool prompt should keep Temporary Chat ON: ${prompt.slice(0, 50)}...`
+      );
+    } finally {
+      m.restore();
+    }
+  }
+});
+
+test("Image gen: Open WebUI image-generation context suppresses duplicate chat image gen", async () => {
+  reset();
+  const contexts = [
+    "<context>The requested image has been created by the system successfully and is now being shown to the user. Let the user know that the image they requested has been generated and is now shown in the chat.</context>",
+    "<context>The requested image has been edited and created and is now being shown to the user. Let them know that it has been generated.</context>",
+    "<context>Image generation was attempted but failed because of an error. The system is currently unable to generate the image.</context>",
+  ];
+
+  for (const context of contexts) {
+    const m = installMockFetch();
+    try {
+      const executor = new ChatGptWebExecutor();
+      await executor.execute({
+        model: "gpt-5.3-instant",
+        body: {
+          messages: [
+            { role: "system", content: context },
+            { role: "user", content: "draw an image of a tennis match at night" },
+          ],
+        },
+        stream: false,
+        credentials: { apiKey: "test" },
+        signal: AbortSignal.timeout(10_000),
+        log: null,
+      });
+      const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+      const body = JSON.parse(m.calls.bodies[convIdx]);
+      assert.equal(
+        body.history_and_training_disabled,
+        true,
+        "Open WebUI already handled image generation, so chat path should stay temporary"
+      );
+      assert.equal(body.conversation_id, null);
+      assert.match(
+        body.messages[body.messages.length - 1].content.parts[0],
+        /Briefly acknowledge the image result/
+      );
+      assert.doesNotMatch(body.messages[body.messages.length - 1].content.parts[0], /tennis match/);
+    } finally {
+      m.restore();
+    }
+  }
+});
+
+test("Image gen: heuristic catches common phrasings", async () => {
+  reset();
+  const phrases = [
+    "draw me a kitten",
+    "create an image of a sunset",
+    "make a picture of mountains",
+    "render a logo for my startup",
+    "show me an illustration of a dragon",
+    "/imagine a futuristic city",
+    "paint a portrait of Einstein",
+    "produce a photo of a beach",
+  ];
+  for (const phrase of phrases) {
+    const m = installMockFetch();
+    try {
+      const executor = new ChatGptWebExecutor();
+      await executor.execute({
+        model: "gpt-5.3-instant",
+        body: { messages: [{ role: "user", content: phrase }] },
+        stream: false,
+        credentials: { apiKey: "test" },
+        signal: AbortSignal.timeout(10_000),
+        log: null,
+      });
+      const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+      const body = JSON.parse(m.calls.bodies[convIdx]);
+      assert.equal(
+        body.history_and_training_disabled,
+        false,
+        `Phrase ${JSON.stringify(phrase)} should classify as image-gen`
+      );
+    } finally {
+      m.restore();
+    }
+  }
+});
+
+test("Image gen: signed URL bytes are cached and exposed via /v1/chatgpt-web/image URL", async () => {
+  reset();
+  // Real-world flow: /files/<id>/download returns a chatgpt.com estuary URL
+  // signed for the user's session — that URL 403s for any anonymous client,
+  // so we fetch the bytes, cache them locally, and emit an OmniRoute image URL.
+  const pngBytes = Buffer.from([
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a, // PNG magic
+    0x00,
+    0x00,
+    0x00,
+    0x0d,
+    0x49,
+    0x48,
+    0x44,
+    0x52, // IHDR chunk
+  ]);
+  const dataUriFromTlsClient = `data:image/png;base64,${pngBytes.toString("base64")}`;
+
+  const tls = await import("../../open-sse/services/chatgptTlsClient.ts");
+  __resetChatGptWebCachesForTesting();
+  const downloadUrl = "https://chatgpt.com/backend-api/estuary/content?id=file-data1&sig=abc";
+  const calls = { signed: 0, urls: [] };
+
+  tls.__setTlsFetchOverrideForTesting(async (url, opts = {}) => {
+    const u = String(url);
+    calls.urls.push(u);
+    if (u === "https://chatgpt.com/" && (opts.method || "GET") === "GET") {
+      return {
+        status: 200,
+        headers: makeHeaders({ "Content-Type": "text/html" }),
+        text: '<html data-build="prod-test"><script src="https://cdn.oaistatic.com/main.js"></script></html>',
+        body: null,
+      };
+    }
+    if (u.includes("/api/auth/session")) {
+      return {
+        status: 200,
+        headers: makeHeaders({ "Content-Type": "application/json" }),
+        text: JSON.stringify({
+          accessToken: "jwt-x",
+          expires: new Date(Date.now() + 3600_000).toISOString(),
+          user: { id: "u1" },
+        }),
+        body: null,
+      };
+    }
+    if (u.includes("/sentinel/chat-requirements")) {
+      return {
+        status: 200,
+        headers: makeHeaders({ "Content-Type": "application/json" }),
+        text: JSON.stringify({ token: "t", proofofwork: { required: false } }),
+        body: null,
+      };
+    }
+    if (u.match(/\/backend-api\/files\/[^/]+\/download/)) {
+      return {
+        status: 200,
+        headers: makeHeaders({ "Content-Type": "application/json" }),
+        text: JSON.stringify({ download_url: downloadUrl }),
+        body: null,
+      };
+    }
+    if (u.startsWith(downloadUrl)) {
+      calls.signed++;
+      // tls-client-node returns binary bodies as a "data:<mime>;base64,..."
+      // string (see its response.js bytes() impl); the executor decodes it
+      // back into bytes before putting the image in OmniRoute's cache.
+      return {
+        status: 200,
+        headers: makeHeaders({ "Content-Type": "image/png" }),
+        text: dataUriFromTlsClient,
+        body: null,
+      };
+    }
+    if (u.endsWith("/backend-api/f/conversation") || u.endsWith("/backend-api/conversation")) {
+      return {
+        status: 200,
+        headers: makeHeaders({ "Content-Type": "text/event-stream" }),
+        text: mockChatGptStreamText(imageGenEvents({ pointer: "file-service://file-data1" })),
+        body: null,
+      };
+    }
+    return { status: 404, headers: makeHeaders(), text: "not mocked", body: null };
+  });
+
+  await withEnv(
+    {
+      OMNIROUTE_PUBLIC_BASE_URL: "http://192.168.107.55:20128/v1",
+      NEXT_PUBLIC_BASE_URL: "http://localhost:20128",
+    },
+    async () => {
+      try {
+        const executor = new ChatGptWebExecutor();
+        const result = await executor.execute({
+          model: "gpt-5.3-instant",
+          body: { messages: [{ role: "user", content: "draw kitten" }] },
+          stream: false,
+          credentials: { apiKey: "test" },
+          signal: AbortSignal.timeout(10_000),
+          log: null,
+        });
+        assert.equal(result.response.status, 200);
+        const json = await result.response.json();
+        const content = json.choices[0].message.content;
+        // The executor caches the bytes in memory and emits a URL pointing
+        // at /v1/chatgpt-web/image/<uuid> instead of embedding a data URI —
+        // see open-sse/services/chatgptImageCache.ts and the matching route
+        // in src/app/api/v1/chatgpt-web/image/[id]/route.ts.
+        const m = content.match(
+          /!\[image\]\((http:\/\/192\.168\.107\.55:20128\/v1\/chatgpt-web\/image\/([a-f0-9]+))\)/
+        );
+        assert.ok(m, `expected URL-style markdown, got: ${content.slice(0, 200)}`);
+        assert.equal(calls.signed, 1, "fetched signed URL once");
+
+        // Verify the cached bytes match the PNG we fed in by going through
+        // the cache module directly.
+        const cacheMod = await import("../../open-sse/services/chatgptImageCache.ts");
+        const entry = cacheMod.getChatGptImage(m[2]);
+        assert.ok(entry, "cache entry exists for the emitted id");
+        assert.equal(entry.mime, "image/png");
+        assert.deepEqual(Array.from(entry.bytes), Array.from(pngBytes));
+        assert.deepEqual(entry.context, {
+          conversationId: "conv-img-1",
+          parentMessageId: "msg-1",
+        });
+      } finally {
+        tls.__setTlsFetchOverrideForTesting(null);
+      }
+    }
+  );
+});
+
+test("Image gen: prior data: image URIs are stripped from history before upstream", async () => {
+  // Open WebUI replays the full conversation each turn. After we generate an
+  // image and emit ![image](data:image/png;base64,...), that 2-3MB string
+  // comes back as the assistant message on the next turn. Sending it back
+  // upstream blows past chatgpt.com's body limits → "empty response body" 502.
+  reset();
+  const m = installMockFetch();
+  try {
+    const huge = "iVBORw0KGgo" + "A".repeat(2_000_000); // ~2MB base64
+    const assistantMsg = `Sure, here you go:\n\n![image](data:image/png;base64,${huge})\n`;
+    const executor = new ChatGptWebExecutor();
+    await executor.execute({
+      model: "gpt-5.3-instant",
+      body: {
+        messages: [
+          { role: "user", content: "draw a kitten" },
+          { role: "assistant", content: assistantMsg },
+          { role: "user", content: "now make it a puppy" },
+        ],
+      },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+    assert.ok(convIdx >= 0, "conversation request was sent");
+    const body = m.calls.bodies[convIdx];
+    assert.ok(body.length < 50_000, `body should be small, got ${body.length}`);
+    const parsed = JSON.parse(body);
+    const allParts = JSON.stringify(parsed.messages);
+    assert.doesNotMatch(allParts, /data:image/, "no data: URI in upstream body");
+    assert.match(allParts, /generated image/, "placeholder is present");
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image edit: cached OmniRoute image URL continues the saved ChatGPT conversation", async () => {
+  reset();
+  const { storeChatGptImage } = await import("../../open-sse/services/chatgptImageCache.ts");
+  const imageId = storeChatGptImage(Buffer.from([1, 2, 3]), "image/png", 30_000, {
+    conversationId: "conv-image-1",
+    parentMessageId: "msg-image-1",
+  });
+  const imageUrl = `http://192.168.107.55:20128/v1/chatgpt-web/image/${imageId}`;
+  const m = installMockFetch();
+  try {
+    const executor = new ChatGptWebExecutor();
+    await executor.execute({
+      model: "gpt-5.3-instant",
+      body: {
+        messages: [
+          { role: "user", content: "draw a kitten" },
+          { role: "assistant", content: `Here it is:\n\n![image](${imageUrl})` },
+          { role: "user", content: "make it nighttime with softer lighting" },
+        ],
+      },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+
+    const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+    assert.ok(convIdx >= 0, "conversation request was sent");
+    const body = JSON.parse(m.calls.bodies[convIdx]);
+    assert.equal(body.conversation_id, "conv-image-1");
+    assert.equal(body.parent_message_id, "msg-image-1");
+    assert.equal(body.history_and_training_disabled, false);
+    assert.equal(body.messages.length, 1, "saved ChatGPT conversation carries prior image state");
+    assert.equal(body.messages[0].author.role, "user");
+    assert.match(body.messages[0].content.parts[0], /nighttime/);
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image edit: Open WebUI image context suppresses duplicate edit continuation", async () => {
+  reset();
+  const { storeChatGptImage } = await import("../../open-sse/services/chatgptImageCache.ts");
+  const imageId = storeChatGptImage(Buffer.from([1, 2, 3]), "image/png", 30_000, {
+    conversationId: "conv-image-2",
+    parentMessageId: "msg-image-2",
+  });
+  const imageUrl = `http://192.168.107.55:20128/v1/chatgpt-web/image/${imageId}`;
+  const m = installMockFetch();
+  try {
+    const executor = new ChatGptWebExecutor();
+    await executor.execute({
+      model: "gpt-5.3-instant",
+      body: {
+        messages: [
+          {
+            role: "system",
+            content:
+              "<context>The requested image has been edited and created and is now being shown to the user. Let them know that it has been generated.</context>",
+          },
+          { role: "user", content: "draw a kitten" },
+          { role: "assistant", content: `Here it is:\n\n![image](${imageUrl})` },
+          { role: "user", content: "make it nighttime with softer lighting" },
+        ],
+      },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+
+    const convIdx = m.calls.urls.findIndex((u) => u.endsWith("/backend-api/f/conversation"));
+    const body = JSON.parse(m.calls.bodies[convIdx]);
+    assert.equal(body.conversation_id, null);
+    assert.notEqual(body.parent_message_id, "msg-image-2");
+    assert.equal(body.history_and_training_disabled, true);
+    assert.match(
+      body.messages[body.messages.length - 1].content.parts[0],
+      /Briefly acknowledge the image result/
+    );
+    assert.doesNotMatch(body.messages[body.messages.length - 1].content.parts[0], /nighttime/);
+  } finally {
+    m.restore();
+  }
+});
+
+test("Image gen: dedupes the same pointer across in-progress + finished events", async () => {
+  reset();
+  // Repeat the same pointer in BOTH the in_progress event and the
+  // finished_successfully event. The resolver should fetch the URL once.
+  const events = [
+    {
+      conversation_id: "conv-d",
+      message: {
+        id: "msg-1",
+        author: { role: "assistant" },
+        content: {
+          content_type: "multimodal_text",
+          parts: [
+            { content_type: "image_asset_pointer", asset_pointer: "file-service://file-dedupe" },
+          ],
+        },
+        status: "in_progress",
+      },
+    },
+    {
+      conversation_id: "conv-d",
+      message: {
+        id: "msg-1",
+        author: { role: "assistant" },
+        content: {
+          content_type: "multimodal_text",
+          parts: [
+            { content_type: "image_asset_pointer", asset_pointer: "file-service://file-dedupe" },
+          ],
+        },
+        status: "finished_successfully",
+      },
+    },
+  ];
+  const m = installMockFetch({ conv: { status: 200, events } });
+  try {
+    const executor = new ChatGptWebExecutor();
+    const result = await executor.execute({
+      model: "gpt-5.3-instant",
+      body: { messages: [{ role: "user", content: "kitten" }] },
+      stream: false,
+      credentials: { apiKey: "test" },
+      signal: AbortSignal.timeout(10_000),
+      log: null,
+    });
+    assert.equal(result.response.status, 200);
+    const json = await result.response.json();
+    // Markdown emitted exactly once (single image, not duplicated).
+    const matches = json.choices[0].message.content.match(/!\[image\]\(/g) ?? [];
+    assert.equal(matches.length, 1, "markdown emitted once");
+    assert.equal(m.calls.fileDownload, 1, "download URL fetched once");
+  } finally {
+    m.restore();
+  }
 });

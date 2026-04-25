@@ -21,6 +21,7 @@ declare namespace NodeJS {
     PORT?: string;
     API_HOST?: string;
     DASHBOARD_PORT?: string;
+    OMNIROUTE_PUBLIC_BASE_URL?: string;
     OMNIROUTE_BASE_URL?: string;
     OMNIROUTE_DISABLE_BACKGROUND_SERVICES?: string;
     OMNIROUTE_PORT?: string;

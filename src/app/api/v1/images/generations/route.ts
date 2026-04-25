@@ -101,6 +101,14 @@ function hasImageGenerationInput(body: Record<string, unknown>) {
   return false;
 }
 
+function requestHeadersToRecord(headers: Headers): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    normalized[key] = value;
+  });
+  return normalized;
+}
+
 export async function POST(request) {
   let rawBody;
   try {
@@ -228,6 +236,8 @@ export async function POST(request) {
     credentials,
     log,
     ...(isCustomModel && { resolvedProvider: provider }),
+    signal: request.signal,
+    clientHeaders: requestHeadersToRecord(request.headers),
   });
 
   if (result.success) {
