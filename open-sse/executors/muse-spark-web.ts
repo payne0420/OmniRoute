@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   BaseExecutor,
   mergeAbortSignals,
@@ -89,7 +91,20 @@ function extractMessageText(content: unknown): string {
     .trim();
 }
 
-function parseOpenAIMessages(messages: Array<Record<string, unknown>>): string {
+type ParsedHistory = {
+  /** Whole history folded into one string (used when starting a new conversation). */
+  foldedPrompt: string;
+  /** Just the last user turn — sent on its own when we're continuing a cached conversation. */
+  latestUserContent: string;
+  /**
+   * The most recent assistant turn from the OpenAI-side history, or null if
+   * none. Used as a cache lookup key to recover the meta.ai conversation id
+   * we created on the previous turn.
+   */
+  lastAssistantContent: string | null;
+};
+
+function parseOpenAIMessages(messages: Array<Record<string, unknown>>): ParsedHistory {
   const extracted: Array<{ role: string; content: string }> = [];
 
   for (const message of messages) {
@@ -102,7 +117,7 @@ function parseOpenAIMessages(messages: Array<Record<string, unknown>>): string {
   }
 
   if (extracted.length === 0) {
-    return "";
+    return { foldedPrompt: "", latestUserContent: "", lastAssistantContent: null };
   }
 
   let lastUserIndex = -1;
@@ -113,7 +128,15 @@ function parseOpenAIMessages(messages: Array<Record<string, unknown>>): string {
     }
   }
 
-  return extracted
+  let lastAssistantContent: string | null = null;
+  for (let i = extracted.length - 1; i >= 0; i--) {
+    if (extracted[i].role === "assistant") {
+      lastAssistantContent = extracted[i].content;
+      break;
+    }
+  }
+
+  const foldedPrompt = extracted
     .map((message, index) => {
       if (index === lastUserIndex) {
         return message.content;
@@ -122,6 +145,10 @@ function parseOpenAIMessages(messages: Array<Record<string, unknown>>): string {
     })
     .join("\n\n")
     .trim();
+
+  const latestUserContent = lastUserIndex >= 0 ? extracted[lastUserIndex].content : "";
+
+  return { foldedPrompt, latestUserContent, lastAssistantContent };
 }
 
 function estimateTokens(text: string): number {
@@ -206,8 +233,83 @@ function getMuseSparkModelInfo(model: string): MuseSparkModelInfo {
   return MODEL_MAP[model] || MODEL_MAP["muse-spark"];
 }
 
-function buildMetaAiRequestBody(prompt: string, model: string) {
-  const conversationId = generateMetaConversationId();
+// ─── Conversation continuity cache ──────────────────────────────────────────
+// The default behavior of /v1/chat/completions is stateless: the caller passes
+// the full message history each turn. Without continuation, every turn would
+// open a brand-new meta.ai conversation containing the OpenAI history folded
+// into a single user prompt — three real chat turns become three separate
+// conversations in the user's meta.ai history, each polluted with the prior
+// turns rendered as "user: …" / "assistant: …" text.
+//
+// To present a clean single growing conversation in meta.ai, we cache the
+// conversationId we created on the previous turn keyed by a hash of the last
+// assistant message we returned. On the next turn, if the OpenAI history's
+// most recent assistant turn matches a cached entry, we reuse the cached
+// conversationId, set isNewConversation=false, and send only the latest user
+// turn — Meta then appends to the existing conversation tree.
+//
+// Cache key includes connectionId + model so concurrent users / model
+// switches don't collide. TTL is 30 minutes (Meta's web client also expires
+// idle conversations on a similar window).
+
+type CachedConversation = {
+  conversationId: string;
+  branchPath: string;
+  expiresAt: number;
+};
+
+const MUSE_CONV_CACHE_MAX = 500;
+const MUSE_CONV_CACHE_TTL_MS = 30 * 60 * 1000;
+const conversationCache = new Map<string, CachedConversation>();
+
+function makeConversationCacheKey(
+  connectionId: string,
+  model: string,
+  assistantContent: string
+): string {
+  return createHash("sha256")
+    .update(`${connectionId}\x1f${model}\x1f${assistantContent}`)
+    .digest("hex");
+}
+
+function lookupCachedConversation(key: string): CachedConversation | null {
+  const entry = conversationCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    conversationCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function rememberConversation(
+  key: string,
+  context: { conversationId: string; branchPath: string }
+): void {
+  if (conversationCache.size >= MUSE_CONV_CACHE_MAX && !conversationCache.has(key)) {
+    // Map iteration is insertion order, so the first key is the oldest.
+    const oldest = conversationCache.keys().next().value;
+    if (oldest) conversationCache.delete(oldest);
+  }
+  conversationCache.set(key, {
+    conversationId: context.conversationId,
+    branchPath: context.branchPath,
+    expiresAt: Date.now() + MUSE_CONV_CACHE_TTL_MS,
+  });
+}
+
+/** Test hook — exported for unit tests; not wired to runtime callers. */
+export function __resetMuseSparkConversationCacheForTesting(): void {
+  conversationCache.clear();
+}
+
+type ConversationContext = {
+  conversationId: string;
+  branchPath: string;
+  isNewConversation: boolean;
+};
+
+function buildMetaAiRequestBody(prompt: string, model: string, conversation: ConversationContext) {
   const userUniqueMessageId = generateNumericMessageId();
 
   return {
@@ -221,14 +323,14 @@ function buildMetaAiRequestBody(prompt: string, model: string) {
         typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC",
       clippyIp: null,
       content: prompt,
-      conversationId,
+      conversationId: conversation.conversationId,
       conversationStarterId: null,
-      currentBranchPath: META_AI_ROOT_BRANCH_PATH,
+      currentBranchPath: conversation.branchPath,
       developerOverridesForMessage: null,
       devicePixelRatio: 1,
       entryPoint: META_AI_ENTRY_POINT,
       imagineOperationRequest: null,
-      isNewConversation: true,
+      isNewConversation: conversation.isNewConversation,
       mentions: null,
       mode: getMuseSparkModelInfo(model).mode,
       promptEditType: null,
@@ -243,7 +345,7 @@ function buildMetaAiRequestBody(prompt: string, model: string) {
       // input fields are nullable-by-omission by default.
       turnId: crypto.randomUUID(),
       userAgent: META_AI_USER_AGENT,
-      userEventId: generateMetaEventId(conversationId),
+      userEventId: generateMetaEventId(conversation.conversationId),
       userLocale: normalizeMetaLocale(),
       userMessageId: crypto.randomUUID(),
       userUniqueMessageId,
@@ -860,8 +962,8 @@ export class MuseSparkWebExecutor extends BaseExecutor {
       };
     }
 
-    const prompt = parseOpenAIMessages(messages);
-    if (!prompt) {
+    const parsedHistory = parseOpenAIMessages(messages);
+    if (!parsedHistory.foldedPrompt) {
       return {
         response: buildErrorResponse(
           400,
@@ -874,8 +976,37 @@ export class MuseSparkWebExecutor extends BaseExecutor {
       };
     }
 
+    // Look up a prior meta.ai conversation we created for this caller +
+    // model. Cache hit → continue that conversation by sending only the
+    // latest user turn. Cache miss (first turn, restart, expired) →
+    // generate a fresh conversationId and fold the full OpenAI history into
+    // the prompt so the assistant has context.
+    const continuationCacheKey =
+      parsedHistory.lastAssistantContent && credentials.connectionId
+        ? makeConversationCacheKey(
+            credentials.connectionId,
+            model,
+            parsedHistory.lastAssistantContent
+          )
+        : null;
+    const cached = continuationCacheKey ? lookupCachedConversation(continuationCacheKey) : null;
+
+    const conversationContext: ConversationContext = cached
+      ? {
+          conversationId: cached.conversationId,
+          branchPath: cached.branchPath,
+          isNewConversation: false,
+        }
+      : {
+          conversationId: generateMetaConversationId(),
+          branchPath: META_AI_ROOT_BRANCH_PATH,
+          isNewConversation: true,
+        };
+
+    const prompt = cached ? parsedHistory.latestUserContent : parsedHistory.foldedPrompt;
+
     const modelInfo = getMuseSparkModelInfo(model);
-    const transformedBody = buildMetaAiRequestBody(prompt, model);
+    const transformedBody = buildMetaAiRequestBody(prompt, model, conversationContext);
     const cookieHeader = selectMetaAiCookieHeader(credentials);
     const headers = buildMetaAiHeaders(cookieHeader);
     mergeUpstreamExtraHeaders(headers, upstreamExtraHeaders);
@@ -907,6 +1038,12 @@ export class MuseSparkWebExecutor extends BaseExecutor {
     }
 
     if (!upstreamResponse.ok) {
+      // If we tried to continue a cached conversation and Meta rejected,
+      // evict the cache entry so the next retry falls back to a fresh
+      // conversationId instead of looping on the same dead one.
+      if (cached && continuationCacheKey) {
+        conversationCache.delete(continuationCacheKey);
+      }
       let message = `Meta AI returned HTTP ${upstreamResponse.status}`;
       if (upstreamResponse.status === 401 || upstreamResponse.status === 403) {
         message =
@@ -943,6 +1080,11 @@ export class MuseSparkWebExecutor extends BaseExecutor {
     const responseText = await readTextResponse(upstreamResponse.body, signal);
     const parsed = parseMetaAiResponseText(responseText, modelInfo.isThinking);
     if (parsed.status !== 200 || parsed.errorMessage) {
+      // Same eviction rule as the HTTP-level branch above: if we attempted
+      // to continue and Meta returned a parsed error, drop the stale entry.
+      if (cached && continuationCacheKey) {
+        conversationCache.delete(continuationCacheKey);
+      }
       return {
         response: buildErrorResponse(
           parsed.status,
@@ -959,6 +1101,24 @@ export class MuseSparkWebExecutor extends BaseExecutor {
     const created = Math.floor(Date.now() / 1000);
     const deltas = parsed.deltas.length > 0 ? parsed.deltas : [parsed.content];
     const reasoningDeltas = parsed.reasoningDeltas;
+
+    // Remember this turn's conversationId keyed by what we're about to
+    // emit, so the next /v1/chat/completions request that has this content
+    // as its prior assistant turn can continue the same meta.ai conversation
+    // instead of starting a new one. Best-effort: skip silently if we don't
+    // have a stable connectionId or assistant content.
+    if (parsed.content && credentials.connectionId) {
+      rememberConversation(
+        makeConversationCacheKey(credentials.connectionId, model, parsed.content),
+        {
+          conversationId: conversationContext.conversationId,
+          // Reuse the same branch path on every continuation. Linear chats
+          // don't fan out into a tree, and Meta's web UI just reflects the
+          // last reply regardless of the path value we send.
+          branchPath: conversationContext.branchPath,
+        }
+      );
+    }
 
     return {
       response: stream
