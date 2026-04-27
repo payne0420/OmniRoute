@@ -231,3 +231,95 @@ test("muse-spark-web: meta error during continuation evicts the stale cache entr
     globalThis.fetch = original;
   }
 });
+
+test("muse-spark-web: parallel chats with identical assistant text but different histories do not collide", async () => {
+  __resetMuseSparkConversationCacheForTesting();
+  const executor = new MuseSparkWebExecutor();
+  const original = globalThis.fetch;
+
+  // Both chats end with the assistant saying the same generic line. Without
+  // hashing the preceding history, both would map to the same cache entry
+  // and the second chat's continuation would route into the first chat's
+  // meta.ai conversation.
+  const COMMON_REPLY = "I don't have access to real-time data.";
+  const { fetchFn, captured } = captureFetch(() => metaAiSseResponse(COMMON_REPLY));
+  globalThis.fetch = fetchFn;
+  try {
+    // Chat A — turn 1 sets up the cache.
+    await executor.execute(executeInputs([{ role: "user", content: "what's the weather" }]));
+    // Chat B — turn 1 (different question, same response) sets up its own cache entry.
+    await executor.execute(executeInputs([{ role: "user", content: "stock price for AAPL" }]));
+    const a1 = (captured[0].body as { variables: Record<string, unknown> }).variables;
+    const b1 = (captured[1].body as { variables: Record<string, unknown> }).variables;
+
+    // Chat A — turn 2 should continue conversation A, not jump to B's id.
+    await executor.execute(
+      executeInputs([
+        { role: "user", content: "what's the weather" },
+        { role: "assistant", content: COMMON_REPLY },
+        { role: "user", content: "any forecast at all?" },
+      ])
+    );
+    // Chat B — turn 2 should continue conversation B.
+    await executor.execute(
+      executeInputs([
+        { role: "user", content: "stock price for AAPL" },
+        { role: "assistant", content: COMMON_REPLY },
+        { role: "user", content: "any market info at all?" },
+      ])
+    );
+    const a2 = (captured[2].body as { variables: Record<string, unknown> }).variables;
+    const b2 = (captured[3].body as { variables: Record<string, unknown> }).variables;
+
+    assert.equal(a2.isNewConversation, false, "chat A turn 2 continues");
+    assert.equal(b2.isNewConversation, false, "chat B turn 2 continues");
+    assert.equal(a2.conversationId, a1.conversationId, "chat A continues into A's conversation");
+    assert.equal(b2.conversationId, b1.conversationId, "chat B continues into B's conversation");
+    assert.notEqual(
+      a2.conversationId,
+      b2.conversationId,
+      "the two chats must not collide despite identical assistant text"
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("muse-spark-web: empty latestUserContent (no `user` role) falls back to fresh conversation", async () => {
+  __resetMuseSparkConversationCacheForTesting();
+  const executor = new MuseSparkWebExecutor();
+  const original = globalThis.fetch;
+  const { fetchFn, captured } = captureFetch(() => metaAiSseResponse("ack"));
+  globalThis.fetch = fetchFn;
+  try {
+    // Pre-seed the cache with a normal turn so a hit IS possible if the
+    // guard isn't in place.
+    await executor.execute(executeInputs([{ role: "user", content: "ping" }]));
+
+    // Now send a payload with no `user` role at all (system + assistant
+    // only). `latestUserContent` is empty; without the guard the executor
+    // would route this through the cache-hit path and POST empty content
+    // with `isNewConversation: false`.
+    await executor.execute(
+      executeInputs([
+        { role: "system", content: "you are helpful" },
+        { role: "assistant", content: "ack" },
+      ])
+    );
+    const t2 = (captured[1].body as { variables: Record<string, unknown> }).variables;
+
+    assert.equal(
+      t2.isNewConversation,
+      true,
+      "empty latestUserContent must NOT use the cache-hit path"
+    );
+    assert.notEqual(t2.content, "", "must not POST empty content");
+    assert.match(
+      String(t2.content),
+      /assistant: ack/,
+      "should fall through to the folded-history prompt"
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
