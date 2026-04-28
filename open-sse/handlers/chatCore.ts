@@ -1436,13 +1436,9 @@ export async function handleChatCore({
     // Sanitize OpenAI-format function tool schemas before they reach strict
     // upstream JSON Schema validators (e.g. Moonshot AI behind
     // opencode-go/kimi-k2.6). See toolSchemaSanitizer.ts for the specific bug.
-    body.tools = body.tools.map((tool) => {
-      if (!tool || typeof tool !== "object") return tool;
-      const t = tool as Record<string, unknown>;
-      const isFunctionTool =
-        t.type === "function" || (t.function && typeof t.function === "object");
-      return isFunctionTool ? (sanitizeOpenAITool(t) as typeof tool) : tool;
-    });
+    // sanitizeOpenAITool is safe to call on any input — it no-ops non-function
+    // tools (e.g. Responses API built-ins) and non-object values.
+    body.tools = body.tools.map((tool) => sanitizeOpenAITool(tool) as (typeof body.tools)[number]);
   }
 
   const memoryOwnerId = resolveMemoryOwnerId(apiKeyInfo as Record<string, unknown> | null);

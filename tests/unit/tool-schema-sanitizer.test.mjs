@@ -170,7 +170,7 @@ describe("toolSchemaSanitizer", () => {
       assert.deepEqual(out.function.parameters, { type: "object", properties: {} });
     });
 
-    it("replaces non-object property values with empty schema", () => {
+    it("replaces non-object/non-boolean property values with empty schema", () => {
       const tool = {
         type: "function",
         function: {
@@ -209,6 +209,200 @@ describe("toolSchemaSanitizer", () => {
       assert.deepEqual(out.function.parameters.properties.b, {
         type: "integer",
         minimum: 0,
+      });
+    });
+  });
+
+  describe("anyOf / oneOf / allOf recursion", () => {
+    it("strips null from enum nested inside anyOf (Moonshot validates here)", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: {
+              mode: {
+                anyOf: [{ type: "string", enum: ["a", "b", null] }, { type: "null" }],
+              },
+            },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.deepEqual(out.function.parameters.properties.mode.anyOf[0].enum, ["a", "b"]);
+    });
+
+    it("strips null from enum nested inside oneOf", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: {
+              mode: {
+                oneOf: [{ type: "string", enum: ["a", null] }, { type: "integer" }],
+              },
+            },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.deepEqual(out.function.parameters.properties.mode.oneOf[0].enum, ["a"]);
+    });
+
+    it("strips null from enum nested inside allOf", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: {
+              mode: {
+                allOf: [{ type: "string", enum: ["a", null] }],
+              },
+            },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.deepEqual(out.function.parameters.properties.mode.allOf[0].enum, ["a"]);
+    });
+
+    it("replaces non-object entries inside anyOf/oneOf/allOf with empty schema", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: {
+              mode: { anyOf: [{ type: "string" }, null, "junk", 1] },
+            },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.deepEqual(out.function.parameters.properties.mode.anyOf, [
+        { type: "string" },
+        {},
+        {},
+        {},
+      ]);
+    });
+  });
+
+  describe("additionalProperties recursion", () => {
+    it("strips null from enum nested inside additionalProperties (Moonshot validates here)", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: {
+              map: {
+                type: "object",
+                additionalProperties: { type: "string", enum: ["a", null] },
+              },
+            },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.deepEqual(out.function.parameters.properties.map.additionalProperties.enum, ["a"]);
+    });
+
+    it("preserves boolean additionalProperties", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: {
+              map: { type: "object", additionalProperties: false },
+            },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.equal(out.function.parameters.properties.map.additionalProperties, false);
+    });
+  });
+
+  describe("boolean property schemas (JSON Schema 2019)", () => {
+    it("preserves true / false property values rather than coercing to {}", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: { allow_anything: true, deny_anything: false },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.equal(out.function.parameters.properties.allow_anything, true);
+      assert.equal(out.function.parameters.properties.deny_anything, false);
+    });
+
+    it("still coerces other non-object property values (null, string, number) to {}", () => {
+      const tool = {
+        type: "function",
+        function: {
+          name: "x",
+          parameters: {
+            type: "object",
+            properties: { a: null, b: "junk", c: 1 },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.deepEqual(out.function.parameters.properties.a, {});
+      assert.deepEqual(out.function.parameters.properties.b, {});
+      assert.deepEqual(out.function.parameters.properties.c, {});
+    });
+  });
+
+  describe("Responses API tool shape (top-level parameters)", () => {
+    it("strips null from enum in Responses-format tool (top-level parameters)", () => {
+      // /v1/responses tools have { type, name, parameters } at top level — no
+      // `function` wrapper. They reach chatCore in this shape before the
+      // request translator unwraps them, so the sanitizer must handle both.
+      const tool = {
+        type: "function",
+        name: "fs_search",
+        description: "search",
+        parameters: {
+          type: "object",
+          properties: {
+            output_mode: {
+              type: "string",
+              enum: ["a", "b", null],
+            },
+          },
+        },
+      };
+      const out = sanitizeOpenAITool(tool);
+      assert.equal(out.name, "fs_search");
+      assert.deepEqual(out.parameters.properties.output_mode.enum, ["a", "b"]);
+    });
+
+    it("normalizes missing parameters in Responses-format tool", () => {
+      const tool = { type: "function", name: "x" };
+      const out = sanitizeOpenAITool(tool);
+      assert.deepEqual(out.parameters, { type: "object", properties: {} });
+    });
+
+    it("does not touch Responses-format tool without type=function", () => {
+      const tool = { type: "web_search", name: "websearch" };
+      assert.deepEqual(sanitizeOpenAITool(tool), {
+        type: "web_search",
+        name: "websearch",
       });
     });
   });

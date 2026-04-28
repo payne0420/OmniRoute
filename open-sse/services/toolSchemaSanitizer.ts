@@ -34,7 +34,15 @@ function sanitizeSchema(value: unknown, depth = 0): Record<string, unknown> {
     if (k === "properties" && isPlainObject(v)) {
       const cleaned: Record<string, unknown> = {};
       for (const [pk, pv] of Object.entries(v)) {
-        cleaned[pk] = isPlainObject(pv) ? sanitizeSchema(pv, depth + 1) : {};
+        if (isPlainObject(pv)) {
+          cleaned[pk] = sanitizeSchema(pv, depth + 1);
+        } else if (typeof pv === "boolean") {
+          // JSON Schema 2019 boolean form: `true` (anything) / `false` (nothing).
+          // Preserve as-is; Moonshot accepts these.
+          cleaned[pk] = pv;
+        } else {
+          cleaned[pk] = {};
+        }
       }
       result[k] = cleaned;
     } else if (k === "items") {
@@ -45,6 +53,21 @@ function sanitizeSchema(value: unknown, depth = 0): Record<string, unknown> {
         result[k] = firstObject ? sanitizeSchema(firstObject, depth + 1) : {};
       } else if (isPlainObject(v)) {
         result[k] = sanitizeSchema(v, depth + 1);
+      }
+    } else if (k === "anyOf" || k === "oneOf" || k === "allOf") {
+      // Moonshot recursively validates inside `anyOf` (confirmed empirically),
+      // so we must descend to strip null-in-enum etc. `oneOf`/`allOf` aren't
+      // currently validated by Moonshot but are recursed for symmetry/defense.
+      if (Array.isArray(v)) {
+        result[k] = v.map((s) => (isPlainObject(s) ? sanitizeSchema(s, depth + 1) : {}));
+      }
+    } else if (k === "additionalProperties") {
+      // Moonshot recursively validates the schema form of additionalProperties
+      // (confirmed empirically). The boolean form is also valid JSON Schema.
+      if (isPlainObject(v)) {
+        result[k] = sanitizeSchema(v, depth + 1);
+      } else if (typeof v === "boolean") {
+        result[k] = v;
       }
     } else if (k === "enum" && Array.isArray(v)) {
       // The actual fix: strip null/undefined entries that ForgeCode adds for
@@ -65,20 +88,28 @@ function sanitizeSchema(value: unknown, depth = 0): Record<string, unknown> {
   return result;
 }
 
+function normalizeParameters(parameters: unknown): unknown {
+  if (isPlainObject(parameters)) return sanitizeSchema(parameters);
+  if (parameters === null || parameters === undefined) {
+    return { type: "object", properties: {} };
+  }
+  return { type: "object", properties: {} };
+}
+
 export function sanitizeOpenAITool(tool: unknown): unknown {
   if (!isPlainObject(tool)) return tool;
   const t = { ...tool };
 
   if (isPlainObject(t.function)) {
+    // Chat Completions format: { type: "function", function: { name, parameters } }
     const f = { ...t.function };
-
-    if (isPlainObject(f.parameters)) {
-      f.parameters = sanitizeSchema(f.parameters);
-    } else if (f.parameters === null || f.parameters === undefined) {
-      f.parameters = { type: "object", properties: {} };
-    }
-
+    f.parameters = normalizeParameters(f.parameters);
     t.function = f;
+  } else if (t.type === "function") {
+    // Responses API format: { type: "function", name, parameters } — no `function`
+    // wrapper. /v1/responses requests reach chatCore in this shape and are only
+    // unwrapped later by the request translator, so we have to sanitize here too.
+    t.parameters = normalizeParameters(t.parameters);
   }
 
   return t;
