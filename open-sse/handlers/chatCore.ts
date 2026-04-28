@@ -1,4 +1,4 @@
-import { getCorsOrigin } from "../utils/cors.ts";
+import { CORS_HEADERS } from "../utils/cors.ts";
 import { detectFormatFromEndpoint, getTargetFormat } from "../services/provider.ts";
 import { translateRequest, needsTranslation } from "../translator/index.ts";
 import { FORMATS } from "../translator/formats.ts";
@@ -6,6 +6,7 @@ import {
   createSSETransformStreamWithLogger,
   createPassthroughStreamWithLogger,
   COLORS,
+  withBodyTimeout,
 } from "../utils/stream.ts";
 import { createStreamController, pipeWithDisconnect } from "../utils/streamHandler.ts";
 import { addBufferToUsage, filterUsageForFormat, estimateUsage } from "../utils/usageTracking.ts";
@@ -32,6 +33,7 @@ import {
 } from "../services/errorClassifier.ts";
 import { updateProviderConnection } from "@/lib/db/providers";
 import { isDetailedLoggingEnabled } from "@/lib/db/detailedLogs";
+import { getCallLogPipelineCaptureStreamChunks } from "@/lib/logEnv";
 import { logAuditEvent } from "@/lib/compliance";
 import { extractProviderWarnings } from "@/lib/compliance/providerAudit";
 import { handleBypassRequest } from "../utils/bypassHandler.ts";
@@ -1019,7 +1021,6 @@ export async function handleChatCore({
         status: cachedIdemp.status,
         headers: {
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": getCorsOrigin(),
           "X-OmniRoute-Idempotent": "true",
           ...buildOmniRouteResponseMetaHeaders({
             provider,
@@ -1130,6 +1131,8 @@ export async function handleChatCore({
   }
   const noLogEnabled = apiKeyInfo?.noLog === true;
   const detailedLoggingEnabled = !noLogEnabled && (await isDetailedLoggingEnabled());
+  const capturePipelineStreamChunks =
+    detailedLoggingEnabled && getCallLogPipelineCaptureStreamChunks();
   const skillRequestId = generateRequestId();
   const pipelineSessionId =
     (clientRawRequest?.headers && typeof clientRawRequest.headers.get === "function"
@@ -1311,7 +1314,7 @@ export async function handleChatCore({
   // Create request logger for this session: sourceFormat_targetFormat_model
   const reqLogger = await createRequestLogger(sourceFormat, targetFormat, model, {
     enabled: detailedLoggingEnabled,
-    captureStreamChunks: detailedLoggingEnabled,
+    captureStreamChunks: capturePipelineStreamChunks,
   });
 
   // 0. Log client raw request (before format conversion)
@@ -1356,7 +1359,6 @@ export async function handleChatCore({
         response: new Response(JSON.stringify(cached), {
           headers: {
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": getCorsOrigin(),
             [OMNIROUTE_RESPONSE_HEADERS.cache]: "HIT",
             ...buildOmniRouteResponseMetaHeaders({
               provider,
@@ -1880,7 +1882,6 @@ export async function handleChatCore({
             status: statusCode,
             headers: {
               "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": getCorsOrigin(),
             },
           }
         ),
@@ -2182,7 +2183,7 @@ export async function handleChatCore({
         const status = rawResult.response.status;
         const statusText = rawResult.response.statusText;
         const headers = Array.from(rawResult.response.headers.entries()) as [string, string][];
-        const payload = await rawResult.response.text();
+        const payload = await withBodyTimeout<string>(rawResult.response.text());
         acquireAccountSemaphoreRelease();
 
         return {
@@ -2294,7 +2295,7 @@ export async function handleChatCore({
     const failureStatus =
       error.name === "AbortError"
         ? 499
-        : error.name === "TimeoutError"
+        : error.name === "TimeoutError" || error.name === "BodyTimeoutError"
           ? HTTP_STATUS.GATEWAY_TIMEOUT
           : HTTP_STATUS.BAD_GATEWAY;
     const failureMessage =
@@ -2785,7 +2786,7 @@ export async function handleChatCore({
     const contentType = (providerResponse.headers.get("content-type") || "").toLowerCase();
     let responseBody;
     let responsePayloadFormat = targetFormat;
-    const rawBody = await providerResponse.text();
+    const rawBody = await withBodyTimeout<string>(providerResponse.text());
     const normalizedProviderPayload = normalizePayloadForLog(rawBody);
     const looksLikeSSE =
       contentType.includes("text/event-stream") ||
@@ -2880,7 +2881,7 @@ export async function handleChatCore({
         try {
           const fallbackResult = await executeProviderRequest(nextModel, false);
           if (fallbackResult.response.ok) {
-            const fallbackRaw = await fallbackResult.response.text();
+            const fallbackRaw = await withBodyTimeout<string>(fallbackResult.response.text());
             try {
               responseBody = fallbackRaw ? JSON.parse(fallbackRaw) : {};
               providerUrl = fallbackResult.url;
@@ -3192,7 +3193,6 @@ export async function handleChatCore({
       response: new Response(JSON.stringify(translatedResponse), {
         headers: {
           "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": getCorsOrigin(),
           [OMNIROUTE_RESPONSE_HEADERS.cache]: "MISS",
           ...buildOmniRouteResponseMetaHeaders({
             provider,
@@ -3218,7 +3218,6 @@ export async function handleChatCore({
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
-    "Access-Control-Allow-Origin": getCorsOrigin(),
     [OMNIROUTE_RESPONSE_HEADERS.cache]: "MISS",
     ...buildOmniRouteResponseMetaHeaders({
       provider,
