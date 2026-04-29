@@ -2398,16 +2398,21 @@ async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: an
     }
 
     if (response.status === 403) {
-      // Grok returns 403 for both auth failures and resource errors (e.g. an
-      // unrecognized modeId returns "Model is not found"). Only fail validation
-      // when the body explicitly signals a credential problem.
+      // Grok uses 403 for auth failures, entitlement issues, geo blocks, and
+      // resource errors. Default-deny: only the auth-shaped 403 gets the
+      // re-paste hint; anything else surfaces the upstream body so the user
+      // (or maintainer, if upstream renames the probe model) sees the real
+      // cause instead of a misleading "valid" verdict.
       if (/invalid-credentials|unauthenticated|unauthorized/i.test(errorDetail)) {
         return {
           valid: false,
           error: "Invalid SSO cookie — re-paste from grok.com DevTools → Cookies → sso",
         };
       }
-      return { valid: true, error: null };
+      return {
+        valid: false,
+        error: `Grok rejected validation (403)${errorDetail ? `: ${errorDetail.slice(0, 160)}` : ""}`,
+      };
     }
 
     if (response.status === 429) {

@@ -399,7 +399,7 @@ test("grok-web validator: empty/missing sso in input returns 'Missing sso cookie
   assert.match(result.error || "", /Missing sso cookie/i);
 });
 
-test("grok-web validator: 403 with non-auth body (e.g. model-not-found) is treated as auth-passed", async () => {
+test("grok-web validator: non-auth 403 is reported as failure with upstream body, not silently passed", async () => {
   globalThis.fetch = async (url) => {
     const target = String(url);
     if (target.includes("grok.com/rest/app-chat/conversations/new")) {
@@ -412,8 +412,23 @@ test("grok-web validator: 403 with non-auth body (e.g. model-not-found) is treat
   };
 
   const result = await validateProviderApiKey({ provider: "grok-web", apiKey: "good-cookie" });
-  assert.equal(result.valid, true);
-  assert.equal(result.error, null);
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /Grok rejected validation \(403\)/);
+  assert.match(result.error || "", /Model is not found/);
+});
+
+test("grok-web validator: generic 403 forbidden is rejected, not silently passed", async () => {
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("grok.com/rest/app-chat/conversations/new")) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    throw new Error(`unexpected fetch: ${target}`);
+  };
+
+  const result = await validateProviderApiKey({ provider: "grok-web", apiKey: "any-cookie" });
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /Grok rejected validation \(403\)/);
 });
 
 test("grok-web validator: 403 with credential-rejection body is treated as auth-failed", async () => {
