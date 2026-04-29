@@ -21,7 +21,9 @@ function uuidFromStableValue(value: string): string {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
-export function getCodexInstallationId(providerSpecificData?: Record<string, unknown> | null): string {
+export function getCodexInstallationId(
+  providerSpecificData?: Record<string, unknown> | null
+): string {
   const explicit = normalizeUuid(providerSpecificData?.codexInstallationId);
   if (explicit) return explicit;
 
@@ -73,7 +75,9 @@ export function applyCodexClientMetadata(
 ): void {
   if (!identity) return;
   const existing =
-    body.client_metadata && typeof body.client_metadata === "object" && !Array.isArray(body.client_metadata)
+    body.client_metadata &&
+    typeof body.client_metadata === "object" &&
+    !Array.isArray(body.client_metadata)
       ? (body.client_metadata as Record<string, unknown>)
       : {};
   body.client_metadata = {

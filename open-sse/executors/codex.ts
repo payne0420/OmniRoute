@@ -513,7 +513,7 @@ function getResponsesSubpath(endpointPath: unknown): string | null {
   return match[1] || "";
 }
 
-function isCompactResponsesEndpoint(endpointPath: unknown): boolean {
+export function isCompactResponsesEndpoint(endpointPath: unknown): boolean {
   return getResponsesSubpath(endpointPath)?.toLowerCase() === "/compact";
 }
 
@@ -714,7 +714,10 @@ export class CodexExecutor extends BaseExecutor {
       input.credentials,
       input.body as Record<string, unknown> | null
     );
-    const identity = createCodexClientIdentity(sessionId, input.credentials?.providerSpecificData ?? null);
+    const identity = createCodexClientIdentity(
+      sessionId,
+      input.credentials?.providerSpecificData ?? null
+    );
     const credentials = identity
       ? {
           ...input.credentials,
@@ -1082,9 +1085,10 @@ export class CodexExecutor extends BaseExecutor {
       }
     }
 
-    // Store: The Codex OAuth backend rejects store=true with
-    // "Store must be set to false". Default to false unless the provider
-    // explicitly opts in (e.g. API-key accounts that support persistence).
+    // Store: regular Codex Responses rejects store=true with
+    // "Store must be set to false", while /responses/compact rejects the
+    // store field entirely. Default regular requests to false unless the
+    // provider explicitly opts in (e.g. API-key accounts that support persistence).
     // Ref: sub2api openai_codex_transform.go line 75-80
     const explicitStoreSetting =
       credentials?.providerSpecificData &&
@@ -1092,7 +1096,9 @@ export class CodexExecutor extends BaseExecutor {
       !Array.isArray(credentials.providerSpecificData)
         ? credentials.providerSpecificData.openaiStoreEnabled
         : undefined;
-    if (explicitStoreSetting === true) {
+    if (isCompactRequest) {
+      delete body.store;
+    } else if (explicitStoreSetting === true) {
       body.store = true;
     } else {
       // backend rejects store=true ("Store must be set to false"), so default to false.

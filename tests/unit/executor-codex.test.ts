@@ -143,10 +143,7 @@ test("CodexExecutor.buildHeaders binds workspace ids and disables SSE accept for
   assert.equal(standardHeaders.Version, "0.125.0");
   assert.equal(standardHeaders["Openai-Beta"], "responses=experimental");
   assert.equal(standardHeaders["X-Codex-Beta-Features"], "responses_websockets");
-  assert.equal(
-    standardHeaders["User-Agent"],
-    "codex-cli/0.125.0 (Windows 10.0.26200; x64)"
-  );
+  assert.equal(standardHeaders["User-Agent"], "codex-cli/0.125.0 (Windows 10.0.26200; x64)");
   assert.equal(compactHeaders.Accept, "application/json");
 });
 
@@ -161,10 +158,7 @@ test("CodexExecutor.buildHeaders honors safe env overrides for Version and User-
     () => {
       const headers = executor.buildHeaders({ accessToken: "codex-token" }, true);
       assert.equal(headers.Version, "0.125.0");
-      assert.equal(
-        headers["User-Agent"],
-        "codex-cli/0.125.0 (Windows 10.0.26200; x64)"
-      );
+      assert.equal(headers["User-Agent"], "codex-cli/0.125.0 (Windows 10.0.26200; x64)");
     }
   );
 
@@ -280,7 +274,7 @@ test("CodexExecutor.transformRequest preserves compact requests and native passt
   assert.equal(result.stream, undefined);
   assert.equal(result.service_tier, "priority");
   assert.equal(result.reasoning.effort, "medium");
-  assert.equal(result.store, false);
+  assert.equal(result.store, undefined);
   assert.equal(result.instructions, "keep this");
 });
 
@@ -295,7 +289,7 @@ test("CodexExecutor.transformRequest preserves store-enabled responses state whe
   };
 
   const result = executor.transformRequest("gpt-5.3-codex", body, false, {
-    requestEndpointPath: "/responses/compact",
+    requestEndpointPath: "/responses",
     providerSpecificData: {
       openaiStoreEnabled: true,
       requestDefaults: { serviceTier: "priority" },
@@ -305,6 +299,30 @@ test("CodexExecutor.transformRequest preserves store-enabled responses state whe
   assert.equal(result._omnirouteResponsesStore, undefined);
   assert.equal(result.store, true);
   assert.equal(result.previous_response_id, "resp_prev_123");
+});
+
+test("CodexExecutor.transformRequest strips store from compact requests even when store is enabled", () => {
+  const executor = new CodexExecutor();
+  const body = {
+    _nativeCodexPassthrough: true,
+    _omnirouteResponsesStore: true,
+    instructions: "keep this",
+    store: true,
+    stream: false,
+  };
+
+  const result = executor.transformRequest("gpt-5.3-codex", body, false, {
+    requestEndpointPath: "/responses/compact",
+    providerSpecificData: {
+      openaiStoreEnabled: true,
+      requestDefaults: { serviceTier: "priority" },
+    },
+  });
+
+  assert.equal(result._omnirouteResponsesStore, undefined);
+  assert.equal(result.store, undefined);
+  assert.equal(result.stream, undefined);
+  assert.equal(result.instructions, "keep this");
 });
 
 test("CodexExecutor.transformRequest rehydrates missing function_call items for stateful tool outputs", () => {
@@ -348,7 +366,6 @@ test("CodexExecutor.transformRequest rehydrates missing function_call items for 
     output: '{"ok":true}',
   });
 });
-
 test("CodexExecutor.transformRequest applies per-connection reasoning and service tier defaults", () => {
   const executor = new CodexExecutor();
   const result = executor.transformRequest(
