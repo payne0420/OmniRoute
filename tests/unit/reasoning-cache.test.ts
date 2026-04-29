@@ -8,6 +8,12 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "omniroute-reasoning-"));
+
 // ──────────── Direct service import ────────────
 
 import {
