@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### ✨ New Features
+
+- **feat(tunnels):** integrate native ngrok tunnel support with dashboard UI parity (#1753)
+
 ### 🐛 Bug Fixes
 
 - **fix(models):** apply blocked providers filter to non-chat catalog models (image, embedding, audio, etc.) (#1752)
