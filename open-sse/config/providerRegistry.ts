@@ -1100,7 +1100,6 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     authHeader: "cookie",
     passthroughModels: true,
     models: [
-      { id: "auto", name: "Grok Auto" },
       { id: "fast", name: "Grok Fast" },
       { id: "expert", name: "Grok 4.20 Thinking" },
       { id: "heavy", name: "Grok 4.20 Multi Agent" },

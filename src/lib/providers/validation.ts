@@ -24,7 +24,7 @@ import {
   safeOutboundFetch,
 } from "@/shared/network/safeOutboundFetch";
 import { getProviderOutboundGuard } from "@/shared/network/outboundUrlGuard";
-import { normalizeSessionCookieHeader } from "@/lib/providers/webCookieAuth";
+import { extractCookieValue, normalizeSessionCookieHeader } from "@/lib/providers/webCookieAuth";
 import { getGigachatAccessToken } from "@omniroute/open-sse/services/gigachatAuth.ts";
 import { validateQoderCliPat } from "@omniroute/open-sse/services/qoderCli.ts";
 import {
@@ -2309,8 +2309,13 @@ function buildMetaAiValidationBody() {
 
 async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: any) {
   try {
-    let token = apiKey;
-    if (token.startsWith("sso=")) token = token.slice(4);
+    const token = extractCookieValue(apiKey, "sso");
+    if (!token) {
+      return {
+        valid: false,
+        error: "Missing sso cookie — paste the value (or the full grok.com cookie line)",
+      };
+    }
 
     // Generate the same Cloudflare-bypass headers the GrokWebExecutor uses.
     const randomHex = (n: number) => {
@@ -2353,7 +2358,7 @@ async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: an
       ),
       body: JSON.stringify({
         temporary: true,
-        modeId: "auto",
+        modeId: "fast",
         message: "test",
         fileAttachments: [],
         imageAttachments: [],
@@ -2385,11 +2390,24 @@ async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: an
       errorDetail = (await response.text()).slice(0, 240);
     } catch {}
 
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       return {
         valid: false,
         error: "Invalid SSO cookie — re-paste from grok.com DevTools → Cookies → sso",
       };
+    }
+
+    if (response.status === 403) {
+      // Grok returns 403 for both auth failures and resource errors (e.g. an
+      // unrecognized modeId returns "Model is not found"). Only fail validation
+      // when the body explicitly signals a credential problem.
+      if (/invalid-credentials|unauthenticated|unauthorized/i.test(errorDetail)) {
+        return {
+          valid: false,
+          error: "Invalid SSO cookie — re-paste from grok.com DevTools → Cookies → sso",
+        };
+      }
+      return { valid: true, error: null };
     }
 
     if (response.status === 429) {
