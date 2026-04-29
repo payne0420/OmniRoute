@@ -22,6 +22,10 @@
 - **fix(kiro):** support organization IDC OAuth with regional endpoints and refresh (#1754)
 - **fix(combo):** include 429 in provider circuit breaker to stop infinite retry loops on exhausted quotas (#1767)
 - **fix(claude):** respect client-set thinking/effort params — only inject adaptive thinking and high effort when the client hasn't explicitly set them, preventing forced quota drain on Claude Max accounts (#1761)
+- **fix(blackbox-web):** correct cookie name and populate session/subscription fields (#1776)
+- **fix(codex):** align client identity metadata (#1778)
+- **fix(claude):** fix support for claude-cli using Gemini provider (#1779)
+- **test(reasoning-cache):** isolate DB state using mkdtempSync to prevent 401 middleware errors
 
 ### 🛠️ Maintenance
 
