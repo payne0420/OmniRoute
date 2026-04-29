@@ -25,6 +25,7 @@
 
 ### 🛠️ Maintenance
 
+- **chore(docs):** add MseeP.ai security assessment badge to README (#1727)
 - **chore(xiaomi):** update Xiaomi provider model list (#1759)
 - **chore(db):** move DB health endpoint to management API (#1757)
 - **chore(ui):** speed up endpoint initial render with background task loading (#1760)
