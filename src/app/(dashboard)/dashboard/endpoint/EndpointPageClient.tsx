@@ -78,6 +78,12 @@ const DEFAULT_TUNNEL_VISIBILITY: EndpointTunnelVisibility = {
   showTailscaleFunnel: true,
 };
 
+function runEndpointBackgroundTask(taskName: string, task: () => Promise<unknown>) {
+  void task().catch((error) => {
+    console.log(`Error running endpoint background task (${taskName}):`, error);
+  });
+}
+
 export default function APIPageClient({ machineId }) {
   const [resolvedMachineId, setResolvedMachineId] = useState(machineId || "");
   const t = useTranslations("endpoint");
@@ -216,20 +222,20 @@ export default function APIPageClient({ machineId }) {
     let mounted = true;
 
     const loadPage = async () => {
-      const tunnelVisibility = await loadCloudSettings();
+      const tunnelVisibility = await loadCloudSettings(() => mounted);
 
       if (!mounted) return;
       setLoading(false);
 
-      void fetchModels();
-      void fetchProtocolStatus();
-      void fetchSearchProviders();
+      runEndpointBackgroundTask("models", fetchModels);
+      runEndpointBackgroundTask("protocol-status", fetchProtocolStatus);
+      runEndpointBackgroundTask("search-providers", fetchSearchProviders);
 
       if (tunnelVisibility.showCloudflaredTunnel) {
-        void fetchCloudflaredStatus(true);
+        runEndpointBackgroundTask("cloudflared-status", () => fetchCloudflaredStatus(true));
       }
       if (tunnelVisibility.showTailscaleFunnel) {
-        void fetchTailscaleStatus(true);
+        runEndpointBackgroundTask("tailscale-status", () => fetchTailscaleStatus(true));
       }
     };
 
@@ -308,18 +314,7 @@ export default function APIPageClient({ machineId }) {
   );
 
   const availableEndpointCount = useMemo(
-    () =>
-      [
-        endpointData.chat,
-        endpointData.embeddings,
-        endpointData.images,
-        endpointData.video,
-        endpointData.rerank,
-        endpointData.audioTranscription,
-        endpointData.audioSpeech,
-        endpointData.moderation,
-        endpointData.music,
-      ].filter((models) => models.length > 0).length + 2,
+    () => Object.values(endpointData).filter((models) => models.length > 0).length + 2,
     [endpointData]
   );
 
@@ -345,7 +340,9 @@ export default function APIPageClient({ machineId }) {
     }
   };
 
-  const loadCloudSettings = async (): Promise<EndpointTunnelVisibility> => {
+  const loadCloudSettings = async (
+    shouldApplyState: () => boolean = () => true
+  ): Promise<EndpointTunnelVisibility> => {
     try {
       const res = await fetch("/api/settings");
       if (res.ok) {
@@ -354,6 +351,11 @@ export default function APIPageClient({ machineId }) {
           showCloudflaredTunnel: data.hideEndpointCloudflaredTunnel !== true,
           showTailscaleFunnel: data.hideEndpointTailscaleFunnel !== true,
         };
+
+        if (!shouldApplyState()) {
+          return tunnelVisibility;
+        }
+
         setCloudEnabled(data.cloudEnabled || false);
         if (typeof data.cloudConfigured === "boolean") {
           setCloudConfigured(data.cloudConfigured);
