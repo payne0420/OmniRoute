@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+---
+
+## [3.7.5] — 2026-04-29
+
 ### ✨ New Features
 
 - **feat(tunnels):** integrate native ngrok tunnel support with dashboard UI parity (#1753)
