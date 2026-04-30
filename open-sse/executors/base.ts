@@ -267,6 +267,32 @@ export class BaseExecutor {
     void model;
     void stream;
     void credentials;
+
+    // Fix #1674: Remove empty string values from optional parameters
+    // like tool descriptions to avoid upstream validation failures.
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const cloned = { ...body } as Record<string, unknown>;
+
+      if (Array.isArray(cloned.tools)) {
+        cloned.tools = cloned.tools.map((tool: any) => {
+          if (tool?.function && typeof tool.function === "object") {
+            const func = { ...tool.function };
+            if (func.description === "") delete func.description;
+            return { ...tool, function: func };
+          }
+          return tool;
+        });
+      }
+
+      // Also clean up top level optional fields that commonly cause issues when empty
+      const optionalKeys = ["user", "stop", "seed", "response_format"];
+      for (const key of optionalKeys) {
+        if (cloned[key] === "") delete cloned[key];
+      }
+
+      return cloned;
+    }
+
     return body;
   }
 

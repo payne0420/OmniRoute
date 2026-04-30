@@ -622,10 +622,11 @@ function wrapReadableStreamWithFinalize<T>(
     },
 
     async cancel(reason) {
+      runFinalize();
       try {
         await reader.cancel(reason);
-      } finally {
-        runFinalize();
+      } catch (error) {
+        // Ignored
       }
     },
   });

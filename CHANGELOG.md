@@ -17,6 +17,11 @@
 
 ### 🐛 Bug Fixes
 
+- **fix(dashboard):** add manual 'Clear All' button to terminate stalled long-running requests in Active Requests panel (#1799)
+- **fix(schema):** remove empty string values from optional tool parameters to prevent upstream validation errors (#1674)
+- **fix(providers):** ensure proper streaming cleanup and semaphore release to prevent stalls with nanoGPT (#1781)
+- **fix(db):** wrap quota_snapshots access in try/catch to gracefully handle pending database migrations (#1784)
+- **feat(providers):** add support for glm-cn (BigModel) provider (#1770)
 - **fix(grok-web):** fix Grok validator and cookie parsing (#1793)
 - **fix(antigravity):** scrub internal OmniRoute headers (#1794)
 - **fix(chatgpt-web):** restore validator + expand model catalog to ChatGPT Plus tier (#1792)

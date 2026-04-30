@@ -735,6 +735,27 @@ export const REGISTRY: Record<string, RegistryEntry> = {
     models: [...GLM_SHARED_MODELS],
   },
 
+  "glm-cn": {
+    id: "glm-cn",
+    alias: "glm-cn",
+    format: "openai",
+    executor: "default",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    authType: "apikey",
+    authHeader: "bearer",
+    defaultContextLength: 128000,
+    models: [
+      { id: "glm-4-plus", name: "GLM-4 Plus" },
+      { id: "glm-4-0520", name: "GLM-4 0520" },
+      { id: "glm-4-air", name: "GLM-4 Air" },
+      { id: "glm-4-airx", name: "GLM-4 AirX" },
+      { id: "glm-4-long", name: "GLM-4 Long", contextLength: 1000000 },
+      { id: "glm-4-flashx", name: "GLM-4 FlashX" },
+      { id: "glm-4-flash", name: "GLM-4 Flash" },
+    ],
+    passthroughModels: true,
+  },
+
   glmt: {
     id: "glmt",
     alias: "glmt",
