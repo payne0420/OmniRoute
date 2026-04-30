@@ -1208,6 +1208,39 @@ test("thinking_effort: instant model never triggers PATCH even with reasoning_ef
   }
 });
 
+test("thinking_effort: bare chatgpt.com slug (e.g. gpt-5-4-t-mini) passed as model still PATCHes", async () => {
+  // Regression: the abbreviated dash-form slug "gpt-5-4-t-mini" doesn't
+  // carry the literal "thinking" substring, and isn't a key in MODEL_MAP
+  // (only its dot-form alias is), so a substring-only check would silently
+  // skip the PATCH for callers that send the chatgpt.com slug directly.
+  for (const bareSlug of ["gpt-5-4-t-mini", "gpt-5-5-thinking", "o3"]) {
+    reset();
+    const m = installMockFetch();
+    try {
+      const executor = new ChatGptWebExecutor();
+      await executor.execute({
+        model: bareSlug,
+        body: { messages: [{ role: "user", content: "hi" }], reasoning_effort: "high" },
+        stream: false,
+        credentials: { apiKey: `cookie-bare-${bareSlug}` },
+        signal: AbortSignal.timeout(10_000),
+        log: null,
+      });
+      assert.equal(
+        m.calls.userConfig,
+        1,
+        `bare slug ${bareSlug} must trigger thinking_effort PATCH`
+      );
+      assert.match(
+        m.calls.userConfigUrls[0],
+        new RegExp(`model_slug=${bareSlug.replace(/\./g, "\\.")}`)
+      );
+    } finally {
+      m.restore();
+    }
+  }
+});
+
 test("thinking_effort: thinking model without reasoning_effort skips PATCH", async () => {
   reset();
   const m = installMockFetch();

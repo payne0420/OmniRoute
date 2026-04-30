@@ -93,6 +93,20 @@ const MODEL_MAP: Record<string, string> = {
   o3: "o3",
 };
 
+/** Set of chatgpt.com slugs that the user_last_used_model_config endpoint
+ * accepts a `thinking_effort` value for, derived from MODEL_MAP so adding a
+ * new thinking entry there automatically extends this set. Includes the
+ * abbreviated slug `gpt-5-4-t-mini` (no literal "thinking" substring) — the
+ * reason this set exists at all rather than a substring match.
+ *
+ * Derived from MODEL_MAP keys (always dot-form) that contain "thinking" or
+ * are the `o3` reasoning model; the values are the chatgpt.com-side slugs. */
+const THINKING_CAPABLE_SLUGS: ReadonlySet<string> = new Set(
+  Object.entries(MODEL_MAP)
+    .filter(([k]) => k.includes("thinking") || k === "o3")
+    .map(([, v]) => v)
+);
+
 // ─── Browser-like default headers ──────────────────────────────────────────
 
 function browserHeaders(): Record<string, string> {
@@ -436,12 +450,26 @@ const THINKING_EFFORT_CACHE_MAX = 400;
 /** chatgpt.com only exposes the thinking-effort toggle on dedicated thinking
  * models and the o-series. PATCHing for a non-thinking surface is a no-op
  * (the server accepts it but the routing-time read picks the wrong knob).
- * Checks both the OmniRoute model id and the resolved chatgpt.com slug
- * because the abbreviated slug form (e.g. `gpt-5-4-t-mini` for "Thinking Mini")
- * doesn't carry the literal `thinking` substring. */
+ *
+ * Three branches because the input can arrive in three shapes:
+ *   1. OmniRoute dot-form id (`gpt-5.4-thinking-mini`) — every thinking
+ *      variant carries the literal "thinking" substring here.
+ *   2. Resolved chatgpt.com slug containing "thinking" (`gpt-5-5-thinking`).
+ *   3. Resolved chatgpt.com slug that drops the substring under abbreviation
+ *      (`gpt-5-4-t-mini`). Looked up via THINKING_CAPABLE_SLUGS, which is
+ *      derived from MODEL_MAP itself so adding a new abbreviated thinking
+ *      mapping automatically extends the check.
+ *
+ * Branch 3 also catches the case where a caller passes the chatgpt.com slug
+ * directly as the `model` field (no MODEL_MAP translation needed), which
+ * would otherwise silently bypass the PATCH. */
 function isThinkingCapableModel(modelId: string, slug: string): boolean {
   return (
-    modelId.includes("thinking") || slug.includes("thinking") || slug === "o3" || modelId === "o3"
+    modelId.includes("thinking") ||
+    modelId === "o3" ||
+    slug.includes("thinking") ||
+    THINKING_CAPABLE_SLUGS.has(slug) ||
+    THINKING_CAPABLE_SLUGS.has(modelId)
   );
 }
 
