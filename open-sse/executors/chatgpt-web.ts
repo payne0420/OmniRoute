@@ -36,6 +36,7 @@ const SESSION_URL = `${CHATGPT_BASE}/api/auth/session`;
 const SENTINEL_PREPARE_URL = `${CHATGPT_BASE}/backend-api/sentinel/chat-requirements/prepare`;
 const SENTINEL_CR_URL = `${CHATGPT_BASE}/backend-api/sentinel/chat-requirements`;
 const CONV_URL = `${CHATGPT_BASE}/backend-api/f/conversation`;
+const USER_LAST_USED_MODEL_CONFIG_URL = `${CHATGPT_BASE}/backend-api/settings/user_last_used_model_config`;
 
 const CHATGPT_USER_AGENT =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
@@ -410,6 +411,144 @@ async function runSessionWarmup(
         `warmup ${url} failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
+  }
+}
+
+// ─── Thinking-effort preference (PATCH user_last_used_model_config) ────────
+// chatgpt.com has two thinking levels for its dedicated thinking-models:
+//   • standard — default, faster
+//   • extended — longer reasoning budget
+// The browser sets the level by PATCHing `/backend-api/settings/user_last_used_model_config`
+// once, then issues the conversation request — the conversation endpoint itself
+// has no `thinking_effort` field; the server reads the user's stored preference
+// at routing time. We mirror that handshake when an OpenAI-style request
+// includes `reasoning_effort` (or a direct `providerSpecificData.thinkingEffort`
+// override).
+//
+// Cached per (cookie, slug, effort): the preference persists server-side, so
+// re-PATCHing the same combination is wasted bytes. Refreshed on TTL expiry or
+// whenever the caller switches efforts.
+
+const thinkingEffortCache = new Map<string, number>();
+const THINKING_EFFORT_TTL_MS = 5 * 60 * 1000;
+const THINKING_EFFORT_CACHE_MAX = 400;
+
+/** chatgpt.com only exposes the thinking-effort toggle on dedicated thinking
+ * models and the o-series. PATCHing for a non-thinking surface is a no-op
+ * (the server accepts it but the routing-time read picks the wrong knob).
+ * Checks both the OmniRoute model id and the resolved chatgpt.com slug
+ * because the abbreviated slug form (e.g. `gpt-5-4-t-mini` for "Thinking Mini")
+ * doesn't carry the literal `thinking` substring. */
+function isThinkingCapableModel(modelId: string, slug: string): boolean {
+  return (
+    modelId.includes("thinking") || slug.includes("thinking") || slug === "o3" || modelId === "o3"
+  );
+}
+
+/** Map either a chatgpt.com-native value (`standard`/`extended`) or the
+ * OpenAI Chat Completions `reasoning_effort` field to the value the
+ * `user_last_used_model_config` endpoint expects.
+ *
+ *   minimal | low | medium | standard  → standard
+ *   high    | xhigh | extended         → extended
+ *
+ * `medium` collapses to `standard` because chatgpt.com only has two levels —
+ * there is no separate medium tier on the web product. Returns null for
+ * absent/unknown inputs. */
+function normalizeThinkingEffort(input: unknown): "standard" | "extended" | null {
+  if (typeof input !== "string") return null;
+  const v = input.trim().toLowerCase();
+  if (v === "extended" || v === "high" || v === "xhigh") return "extended";
+  if (v === "standard" || v === "low" || v === "medium" || v === "minimal") {
+    return "standard";
+  }
+  return null;
+}
+
+/** Resolve the requested effort for this turn.
+ * Order: `providerSpecificData.thinkingEffort` (raw override, takes
+ * `standard`/`extended` directly) > `body.reasoning_effort` (top-level OpenAI
+ * Chat Completions field) > `body.reasoning.effort` (Responses-API nesting).
+ * Returns null when the caller did not request one. */
+function resolveThinkingEffort(
+  body: unknown,
+  providerSpecificData: Record<string, unknown> | undefined
+): "standard" | "extended" | null {
+  if (providerSpecificData && providerSpecificData.thinkingEffort !== undefined) {
+    return normalizeThinkingEffort(providerSpecificData.thinkingEffort);
+  }
+  const b = (body as Record<string, unknown> | null) ?? null;
+  if (!b) return null;
+  const top = normalizeThinkingEffort(b.reasoning_effort);
+  if (top) return top;
+  const nested = (b.reasoning as Record<string, unknown> | undefined)?.effort;
+  return normalizeThinkingEffort(nested);
+}
+
+async function setUserThinkingEffort(
+  modelSlug: string,
+  effort: "standard" | "extended",
+  accessToken: string,
+  accountId: string | null,
+  sessionId: string,
+  deviceId: string,
+  cookie: string,
+  signal: AbortSignal | null | undefined,
+  log:
+    | {
+        debug?: (tag: string, msg: string) => void;
+        warn?: (tag: string, msg: string) => void;
+      }
+    | null
+    | undefined
+): Promise<void> {
+  const cacheKey = `${cookieKey(cookie)}:${modelSlug}:${effort}`;
+  const now = Date.now();
+  const last = thinkingEffortCache.get(cacheKey);
+  if (last && now - last < THINKING_EFFORT_TTL_MS) {
+    log?.debug?.("CGPT-WEB", `thinking_effort cached (${modelSlug}=${effort}) — skip PATCH`);
+    return;
+  }
+  if (thinkingEffortCache.size >= THINKING_EFFORT_CACHE_MAX && !thinkingEffortCache.has(cacheKey)) {
+    const first = thinkingEffortCache.keys().next().value;
+    if (first) thinkingEffortCache.delete(first);
+  }
+
+  const url =
+    `${USER_LAST_USED_MODEL_CONFIG_URL}` +
+    `?model_slug=${encodeURIComponent(modelSlug)}` +
+    `&thinking_effort=${encodeURIComponent(effort)}`;
+  const headers: Record<string, string> = {
+    ...browserHeaders(),
+    ...oaiHeaders(sessionId, deviceId),
+    Accept: "application/json",
+    Authorization: `Bearer ${accessToken}`,
+    Cookie: buildSessionCookieHeader(cookie),
+    Priority: "u=4",
+  };
+  if (accountId) headers["chatgpt-account-id"] = accountId;
+
+  try {
+    const r = await tlsFetchChatGpt(url, {
+      method: "PATCH",
+      headers,
+      timeoutMs: 15_000,
+      signal,
+    });
+    if (r.status >= 400) {
+      log?.warn?.(
+        "CGPT-WEB",
+        `thinking_effort PATCH ${r.status} for ${modelSlug}=${effort} (continuing)`
+      );
+      return;
+    }
+    thinkingEffortCache.set(cacheKey, now);
+    log?.debug?.("CGPT-WEB", `thinking_effort PATCH OK (${modelSlug}=${effort})`);
+  } catch (err) {
+    log?.warn?.(
+      "CGPT-WEB",
+      `thinking_effort PATCH failed: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }
 
@@ -2380,6 +2519,29 @@ export class ChatGptWebExecutor extends BaseExecutor {
       log
     );
 
+    // 2a''. Apply thinking_effort preference for thinking-capable models.
+    // Mirrors what chatgpt.com's web UI does when the user toggles the
+    // "Standard"/"Extended" thinking switch — PATCH the user-config endpoint
+    // before issuing the conversation. The conversation request itself has
+    // no `thinking_effort` field; the server reads the stored preference at
+    // routing time. Best-effort: a failed PATCH falls back to whatever the
+    // account's current preference is.
+    const earlyModelSlug = MODEL_MAP[model] ?? model;
+    const requestedEffort = resolveThinkingEffort(body, credentials.providerSpecificData);
+    if (requestedEffort && isThinkingCapableModel(model, earlyModelSlug)) {
+      await setUserThinkingEffort(
+        earlyModelSlug,
+        requestedEffort,
+        tokenEntry.accessToken,
+        tokenEntry.accountId,
+        sessionId,
+        deviceId,
+        cookie,
+        signal,
+        log
+      );
+    }
+
     // 2b. Sentinel chat-requirements
     let reqs: ChatRequirements;
     try {
@@ -2656,6 +2818,7 @@ function stringToStream(text: string): ReadableStream<Uint8Array> {
 export function __resetChatGptWebCachesForTesting(): void {
   tokenCache.clear();
   warmupCache.clear();
+  thinkingEffortCache.clear();
   deviceIdCache.clear();
   __resetChatGptImageCacheForTesting();
   dplCache = null;
