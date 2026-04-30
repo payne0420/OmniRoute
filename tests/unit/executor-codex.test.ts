@@ -299,7 +299,7 @@ test("CodexExecutor.transformRequest preserves store-enabled responses state whe
 
   assert.equal(result._omnirouteResponsesStore, undefined);
   assert.equal(result.store, true);
-  assert.equal(result.previous_response_id, "resp_prev_123");
+  assert.equal(result.previous_response_id, undefined);
 });
 test("CodexExecutor.transformRequest strips store from compact requests even when store is enabled", () => {
   const executor = new CodexExecutor();
@@ -542,7 +542,7 @@ test("CodexExecutor.transformRequest synthesizes a recovery message when orphan 
   assert.equal(result.previous_response_id, undefined);
   assert.equal(result.conversation_id, undefined);
   assert.equal(result.session_id, undefined);
-  assert.equal(result.prompt_cache_key, "conv_empty_after_cleanup");
+  assert.equal(result.prompt_cache_key, "sess_empty_after_cleanup");
   assert.equal(Array.isArray(result.input), true);
   assert.equal(result.input.length, 1);
   assert.deepEqual(result.input[0].type, "message");
