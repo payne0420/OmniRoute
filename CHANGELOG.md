@@ -12,6 +12,11 @@
 
 ### 🐛 Bug Fixes
 
+- **fix(grok-web):** fix Grok validator and cookie parsing (#1793)
+- **fix(antigravity):** scrub internal OmniRoute headers (#1794)
+- **fix(chatgpt-web):** restore validator + expand model catalog to ChatGPT Plus tier (#1792)
+- **fix(codex):** stabilize Copilot responses replay state (#1791)
+- **fix(antigravity):** cap Claude bridge output tokens (#1785)
 - **fix(models):** apply blocked providers filter to non-chat catalog models (image, embedding, audio, etc.) (#1752)
 - **fix(antigravity):** stabilize streaming payload parsing and deduplicate usage/model metadata refreshes (#1748)
 - **fix(antigravity):** normalize Gemini bridge payloads — sanitize tool names, cap output tokens, and fix thinking budget (#1769)
