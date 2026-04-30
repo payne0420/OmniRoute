@@ -289,7 +289,7 @@ test("web-cookie provider validators accept valid Grok, Perplexity, Blackbox and
 
   assert.equal(grokCall?.init.headers.Cookie, "sso=grok-cookie");
   const grokBody = JSON.parse(String(grokCall?.init.body || "{}"));
-  assert.equal(grokBody.modeId, "auto");
+  assert.equal(grokBody.modeId, "fast");
   assert.equal("modelName" in grokBody, false);
   assert.equal("modelMode" in grokBody, false);
   assert.equal(perplexityCall?.init.headers.Cookie, "__Secure-next-auth.session-token=pplx-cookie");
@@ -367,6 +367,91 @@ test("web-cookie provider validators surface auth and subscription failures", as
   assert.match(blackboxExpired.error || "", /Invalid Blackbox session cookie/i);
   assert.match(blackboxNoSubscription.error || "", /no active paid subscription/i);
   assert.match(museSpark.error || "", /Invalid Meta AI session cookie/i);
+});
+
+test("grok-web validator: full DevTools cookie blob is parsed for the sso value", async () => {
+  let capturedCookie = "";
+  globalThis.fetch = async (url, init = {}) => {
+    const target = String(url);
+    if (target.includes("grok.com/rest/app-chat/conversations/new")) {
+      capturedCookie = ((init.headers as Record<string, string>) || {}).Cookie || "";
+      return new Response(JSON.stringify({ result: { conversation: {} } }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch: ${target}`);
+  };
+
+  const blob = "i18nextLng=en; stblid=foo; __cf_bm=bar; sso=eyJTARGET.abc.def; cf_clearance=baz;";
+  const result = await validateProviderApiKey({ provider: "grok-web", apiKey: blob });
+
+  assert.equal(result.valid, true);
+  assert.equal(capturedCookie, "sso=eyJTARGET.abc.def");
+});
+
+test("grok-web validator: empty/missing sso in input returns 'Missing sso cookie'", async () => {
+  globalThis.fetch = async () => {
+    throw new Error("validator should short-circuit before fetching");
+  };
+  const result = await validateProviderApiKey({
+    provider: "grok-web",
+    apiKey: "foo=1; bar=2;",
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /Missing sso cookie/i);
+});
+
+test("grok-web validator: non-auth 403 is reported as failure with upstream body, not silently passed", async () => {
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("grok.com/rest/app-chat/conversations/new")) {
+      return new Response(
+        JSON.stringify({ error: { code: 7, message: "Model is not found", details: [] } }),
+        { status: 403 }
+      );
+    }
+    throw new Error(`unexpected fetch: ${target}`);
+  };
+
+  const result = await validateProviderApiKey({ provider: "grok-web", apiKey: "good-cookie" });
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /Grok rejected validation \(403\)/);
+  assert.match(result.error || "", /Model is not found/);
+});
+
+test("grok-web validator: generic 403 forbidden is rejected, not silently passed", async () => {
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("grok.com/rest/app-chat/conversations/new")) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    throw new Error(`unexpected fetch: ${target}`);
+  };
+
+  const result = await validateProviderApiKey({ provider: "grok-web", apiKey: "any-cookie" });
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /Grok rejected validation \(403\)/);
+});
+
+test("grok-web validator: 403 with credential-rejection body is treated as auth-failed", async () => {
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("grok.com/rest/app-chat/conversations/new")) {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 16,
+            message: "Failed to look up session ID. [WKE=unauthenticated:invalid-credentials]",
+            details: [],
+          },
+        }),
+        { status: 403 }
+      );
+    }
+    throw new Error(`unexpected fetch: ${target}`);
+  };
+
+  const result = await validateProviderApiKey({ provider: "grok-web", apiKey: "bad-cookie" });
+  assert.equal(result.valid, false);
+  assert.match(result.error || "", /Invalid SSO cookie/i);
 });
 
 // ─── chatgpt-web validator ──────────────────────────────────────────────────

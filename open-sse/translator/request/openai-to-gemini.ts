@@ -444,7 +444,12 @@ function getAntigravityClaudeOutputTokens(body: Record<string, unknown>): number
   return ANTIGRAVITY_CLAUDE_MAX_OUTPUT_TOKENS;
 }
 
-function wrapInCloudCodeEnvelopeForClaude(model, claudeRequest, credentials = null, sourceBody = {}) {
+function wrapInCloudCodeEnvelopeForClaude(
+  model,
+  claudeRequest,
+  credentials = null,
+  sourceBody = {}
+) {
   const toolNameMap = new Map<string, string>();
   const sanitizeToolName = (name: string) =>
     sanitizeGeminiToolName(name, {

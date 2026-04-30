@@ -469,10 +469,13 @@ test("AntigravityExecutor.execute applies CLI fingerprint when enabled", async (
       "request",
     ]);
 
-    return new Response('data: {"response":{"candidates":[{"content":{"parts":[{"text":"OK"}]},"finishReason":"STOP"}]}}\n\n', {
-      status: 200,
-      headers: { "Content-Type": "text/event-stream" },
-    });
+    return new Response(
+      'data: {"response":{"candidates":[{"content":{"parts":[{"text":"OK"}]},"finishReason":"STOP"}]}}\n\n',
+      {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }
+    );
   };
 
   try {

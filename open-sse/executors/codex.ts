@@ -471,11 +471,7 @@ function stripStoredItemReferences(body: Record<string, unknown>): void {
     );
   }
 
-  if (
-    Array.isArray(body.input) &&
-    body.input.length === 0 &&
-    droppedOrphanItems.length > 0
-  ) {
+  if (Array.isArray(body.input) && body.input.length === 0 && droppedOrphanItems.length > 0) {
     body.input = [buildRecoveredToolContextMessage(droppedOrphanItems)];
     console.warn(
       `[Codex] stripStoredItemReferences: synthesized recovery message from ${droppedOrphanItems.length} dropped orphan tool item(s)`

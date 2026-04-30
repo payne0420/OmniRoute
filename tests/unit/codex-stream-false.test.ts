@@ -209,7 +209,7 @@ test("chatCore remembers Codex Responses conversation state from transformed bod
       type: "function_call",
       call_id: "call_tool_123",
       name: "workspace_read_file",
-      arguments: "{\"path\":\"README.md\"}",
+      arguments: '{"path":"README.md"}',
     },
   ]);
 
@@ -225,7 +225,7 @@ test("chatCore remembers Codex Responses conversation state from transformed bod
         {
           type: "function_call_output",
           call_id: "call_tool_123",
-          output: "{\"ok\":true}",
+          output: '{"ok":true}',
         },
       ],
     },
@@ -264,12 +264,12 @@ test("chatCore remembers Codex Responses conversation state from transformed bod
     type: "function_call",
     call_id: "call_tool_123",
     name: "workspace_read_file",
-    arguments: "{\"path\":\"README.md\"}",
+    arguments: '{"path":"README.md"}',
   });
   assert.deepEqual(rememberedFunctionCallOutput, {
     type: "function_call_output",
     call_id: "call_tool_123",
-    output: "{\"ok\":true}",
+    output: '{"ok":true}',
   });
 });
 

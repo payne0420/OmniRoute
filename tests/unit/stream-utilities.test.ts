@@ -152,11 +152,11 @@ test("createPassthroughStreamWithLogger backfills completed output from function
     new TextEncoder().encode(
       [
         'data: {"type":"response.created","response":{"id":"resp_fc_1"}}',
-        'event: response.output_item.added',
+        "event: response.output_item.added",
         'data: {"type":"response.output_item.added","response_id":"resp_fc_1","output_index":0,"item":{"id":"fc_call_1","type":"function_call","call_id":"call_1","name":"workspace_read_file","arguments":""}}',
-        'event: response.function_call_arguments.done',
+        "event: response.function_call_arguments.done",
         'data: {"type":"response.function_call_arguments.done","response_id":"resp_fc_1","output_index":0,"item_id":"fc_call_1","arguments":"{\"path\":\"README.md\"}"}',
-        'event: response.completed',
+        "event: response.completed",
         'data: {"type":"response.completed","response":{"id":"resp_fc_1","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}',
         "",
       ].join("\n")

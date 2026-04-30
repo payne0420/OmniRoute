@@ -996,7 +996,10 @@ export function createSSEStream(options: StreamOptions = {}) {
                       passthroughResponsesReasoningSummarySeen.add(reasoningKey);
                     }
                   }
-                  if (parsed.type === "response.output_item.added" && parsed.item?.type === "function_call") {
+                  if (
+                    parsed.type === "response.output_item.added" &&
+                    parsed.item?.type === "function_call"
+                  ) {
                     const item =
                       parsed.item && typeof parsed.item === "object" && !Array.isArray(parsed.item)
                         ? { ...(parsed.item as JsonRecord) }
@@ -1024,7 +1027,8 @@ export function createSSEStream(options: StreamOptions = {}) {
                       ? passthroughResponsesPendingFunctionCalls.get(pendingKey)
                       : undefined;
                     if (pending && typeof parsed.delta === "string") {
-                      const previousArgs = typeof pending.arguments === "string" ? pending.arguments : "";
+                      const previousArgs =
+                        typeof pending.arguments === "string" ? pending.arguments : "";
                       pending.arguments = previousArgs + parsed.delta;
                     }
                   }
@@ -1078,10 +1082,9 @@ export function createSSEStream(options: StreamOptions = {}) {
                     parsed.type === "response.completed" &&
                     passthroughResponsesPendingFunctionCalls.size > 0
                   ) {
-                    pushUniqueResponsesOutputItems(
-                      passthroughResponsesOutputItems,
-                      [...passthroughResponsesPendingFunctionCalls.values()]
-                    );
+                    pushUniqueResponsesOutputItems(passthroughResponsesOutputItems, [
+                      ...passthroughResponsesPendingFunctionCalls.values(),
+                    ]);
                     passthroughResponsesPendingFunctionCalls.clear();
                     passthroughResponsesCurrentFunctionCallKey = null;
                   }
@@ -1544,9 +1547,7 @@ export function createSSEStream(options: StreamOptions = {}) {
 
             if (passthroughResponsesId) {
               const requestInput =
-                body &&
-                typeof body === "object" &&
-                Array.isArray((body as JsonRecord).input)
+                body && typeof body === "object" && Array.isArray((body as JsonRecord).input)
                   ? ((body as JsonRecord).input as unknown[])
                   : [];
               rememberResponseConversationState(

@@ -188,7 +188,9 @@ export function getRememberedResponseConversationItems(responseId: unknown): unk
   return entry.conversationItems.map((item) => structuredClone(item));
 }
 
-export function getRememberedFunctionCallsByIds(callIds: readonly string[]): RememberedFunctionCall[] {
+export function getRememberedFunctionCallsByIds(
+  callIds: readonly string[]
+): RememberedFunctionCall[] {
   cleanupRememberedResponseToolCalls();
 
   if (!Array.isArray(callIds) || callIds.length === 0) {

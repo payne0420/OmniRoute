@@ -346,7 +346,7 @@ test("CodexExecutor.transformRequest expands remembered conversation state for s
         type: "function_call",
         call_id: "call_tool_123",
         name: "workspace_read_file",
-        arguments: "{\"path\":\"README.md\"}",
+        arguments: '{"path":"README.md"}',
       },
     ]
   );
@@ -357,7 +357,7 @@ test("CodexExecutor.transformRequest expands remembered conversation state for s
       {
         type: "function_call_output",
         call_id: "call_tool_123",
-        output: "{\"ok\":true}",
+        output: '{"ok":true}',
       },
     ],
     stream: false,
@@ -384,12 +384,12 @@ test("CodexExecutor.transformRequest expands remembered conversation state for s
     type: "function_call",
     call_id: "call_tool_123",
     name: "workspace_read_file",
-    arguments: "{\"path\":\"README.md\"}",
+    arguments: '{"path":"README.md"}',
   });
   assert.deepEqual(result.input[2], {
     type: "function_call_output",
     call_id: "call_tool_123",
-    output: "{\"ok\":true}",
+    output: '{"ok":true}',
   });
 });
 
@@ -445,17 +445,17 @@ test("CodexExecutor.transformRequest filters orphaned function_call_output items
         type: "function_call",
         call_id: "call_valid_123",
         name: "workspace_read_file",
-        arguments: "{\"path\":\"README.md\"}",
+        arguments: '{"path":"README.md"}',
       },
       {
         type: "function_call_output",
         call_id: "call_valid_123",
-        output: "{\"ok\":true}",
+        output: '{"ok":true}',
       },
       {
         type: "function_call_output",
         call_id: "call_orphan_123",
-        output: "{\"stale\":true}",
+        output: '{"stale":true}',
       },
     ],
     stream: false,
@@ -466,11 +466,11 @@ test("CodexExecutor.transformRequest filters orphaned function_call_output items
   });
 
   assert.equal(result.previous_response_id, undefined);
+  assert.equal(result.input.filter((item) => item.type === "function_call_output").length, 1);
   assert.equal(
-    result.input.filter((item) => item.type === "function_call_output").length,
-    1
+    result.input.find((item) => item.type === "function_call_output")?.call_id,
+    "call_valid_123"
   );
-  assert.equal(result.input.find((item) => item.type === "function_call_output")?.call_id, "call_valid_123");
 });
 
 test("CodexExecutor.transformRequest filters orphaned function_call items after replay repair", () => {
@@ -483,18 +483,18 @@ test("CodexExecutor.transformRequest filters orphaned function_call items after 
         type: "function_call",
         call_id: "call_valid_456",
         name: "workspace_read_file",
-        arguments: "{\"path\":\"README.md\"}",
+        arguments: '{"path":"README.md"}',
       },
       {
         type: "function_call_output",
         call_id: "call_valid_456",
-        output: "{\"ok\":true}",
+        output: '{"ok":true}',
       },
       {
         type: "function_call",
         call_id: "call_orphan_456",
         name: "workspace_search",
-        arguments: "{\"query\":\"Authorization\"}",
+        arguments: '{"query":"Authorization"}',
       },
     ],
     stream: false,
@@ -506,7 +506,10 @@ test("CodexExecutor.transformRequest filters orphaned function_call items after 
 
   assert.equal(result.previous_response_id, undefined);
   assert.equal(result.input.filter((item) => item.type === "function_call").length, 1);
-  assert.equal(result.input.find((item) => item.type === "function_call")?.call_id, "call_valid_456");
+  assert.equal(
+    result.input.find((item) => item.type === "function_call")?.call_id,
+    "call_valid_456"
+  );
 });
 
 test("CodexExecutor.transformRequest synthesizes a recovery message when orphan cleanup empties input", () => {
@@ -521,12 +524,12 @@ test("CodexExecutor.transformRequest synthesizes a recovery message when orphan 
         type: "function_call",
         call_id: "call_orphan_only_1",
         name: "workspace_search",
-        arguments: "{\"query\":\"auth\"}",
+        arguments: '{"query":"auth"}',
       },
       {
         type: "function_call_output",
         call_id: "call_orphan_only_2",
-        output: "{\"matches\":1}",
+        output: '{"matches":1}',
       },
     ],
     stream: false,
@@ -556,7 +559,7 @@ test("CodexExecutor.transformRequest repairs orphan function_call_output from gl
       type: "function_call",
       call_id: "call_old_123",
       name: "workspace_search",
-      arguments: "{\"query\":\"Authorization\"}",
+      arguments: '{"query":"Authorization"}',
     },
   ]);
 
@@ -567,7 +570,7 @@ test("CodexExecutor.transformRequest repairs orphan function_call_output from gl
       {
         type: "function_call_output",
         call_id: "call_old_123",
-        output: "{\"matches\":1}",
+        output: '{"matches":1}',
       },
     ],
     stream: false,
@@ -582,12 +585,12 @@ test("CodexExecutor.transformRequest repairs orphan function_call_output from gl
     type: "function_call",
     call_id: "call_old_123",
     name: "workspace_search",
-    arguments: "{\"query\":\"Authorization\"}",
+    arguments: '{"query":"Authorization"}',
   });
   assert.deepEqual(result.input[1], {
     type: "function_call_output",
     call_id: "call_old_123",
-    output: "{\"matches\":1}",
+    output: '{"matches":1}',
   });
 });
 test("CodexExecutor.transformRequest applies per-connection reasoning and service tier defaults", () => {

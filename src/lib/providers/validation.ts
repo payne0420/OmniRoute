@@ -24,7 +24,7 @@ import {
   safeOutboundFetch,
 } from "@/shared/network/safeOutboundFetch";
 import { getProviderOutboundGuard } from "@/shared/network/outboundUrlGuard";
-import { normalizeSessionCookieHeader } from "@/lib/providers/webCookieAuth";
+import { extractCookieValue, normalizeSessionCookieHeader } from "@/lib/providers/webCookieAuth";
 import { getGigachatAccessToken } from "@omniroute/open-sse/services/gigachatAuth.ts";
 import { validateQoderCliPat } from "@omniroute/open-sse/services/qoderCli.ts";
 import {
@@ -2309,8 +2309,13 @@ function buildMetaAiValidationBody() {
 
 async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: any) {
   try {
-    let token = apiKey;
-    if (token.startsWith("sso=")) token = token.slice(4);
+    const token = extractCookieValue(apiKey, "sso");
+    if (!token) {
+      return {
+        valid: false,
+        error: "Missing sso cookie — paste the value (or the full grok.com cookie line)",
+      };
+    }
 
     // Generate the same Cloudflare-bypass headers the GrokWebExecutor uses.
     const randomHex = (n: number) => {
@@ -2353,7 +2358,7 @@ async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: an
       ),
       body: JSON.stringify({
         temporary: true,
-        modeId: "auto",
+        modeId: "fast",
         message: "test",
         fileAttachments: [],
         imageAttachments: [],
@@ -2385,10 +2390,28 @@ async function validateGrokWebProvider({ apiKey, providerSpecificData = {} }: an
       errorDetail = (await response.text()).slice(0, 240);
     } catch {}
 
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       return {
         valid: false,
         error: "Invalid SSO cookie — re-paste from grok.com DevTools → Cookies → sso",
+      };
+    }
+
+    if (response.status === 403) {
+      // Grok uses 403 for auth failures, entitlement issues, geo blocks, and
+      // resource errors. Default-deny: only the auth-shaped 403 gets the
+      // re-paste hint; anything else surfaces the upstream body so the user
+      // (or maintainer, if upstream renames the probe model) sees the real
+      // cause instead of a misleading "valid" verdict.
+      if (/invalid-credentials|unauthenticated|unauthorized/i.test(errorDetail)) {
+        return {
+          valid: false,
+          error: "Invalid SSO cookie — re-paste from grok.com DevTools → Cookies → sso",
+        };
+      }
+      return {
+        valid: false,
+        error: `Grok rejected validation (403)${errorDetail ? `: ${errorDetail.slice(0, 160)}` : ""}`,
       };
     }
 
