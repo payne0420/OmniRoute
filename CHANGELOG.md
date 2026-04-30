@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### ✨ New Features
+
+- **feat:** ongoing development
+
 ---
 
 ## [3.7.5] — 2026-04-29
@@ -9,9 +13,22 @@
 ### ✨ New Features
 
 - **feat(tunnels):** integrate native ngrok tunnel support with dashboard UI parity (#1753)
+- **feat(api-keys):** add rename support in the permissions modal — editable key name field with validation (#1796)
 
 ### 🐛 Bug Fixes
 
+- **fix(dashboard):** add manual 'Clear All' button to terminate stalled long-running requests in Active Requests panel (#1799)
+- **fix(schema):** remove empty string values from optional tool parameters to prevent upstream validation errors (#1674)
+- **fix(providers):** ensure proper streaming cleanup and semaphore release to prevent stalls with nanoGPT (#1781)
+- **fix(db):** wrap quota_snapshots access in try/catch to gracefully handle pending database migrations (#1784)
+- **feat(providers):** add support for glm-cn (BigModel) provider (#1770)
+- **fix(grok-web):** fix Grok validator and cookie parsing (#1793)
+- **fix(antigravity):** scrub internal OmniRoute headers (#1794)
+- **fix(chatgpt-web):** restore validator + expand model catalog to ChatGPT Plus tier (#1792)
+- **fix(codex):** stabilize Copilot responses replay state (#1791)
+- **fix(antigravity):** cap Claude bridge output tokens (#1785)
+- **fix(schema):** strip `default` properties from tool-call JSON schemas during egress to prevent injection errors (#1782)
+- **fix(db):** add `quota_snapshots` table to core DB schema initialization to prevent startup failures on fresh installs
 - **fix(models):** apply blocked providers filter to non-chat catalog models (image, embedding, audio, etc.) (#1752)
 - **fix(antigravity):** stabilize streaming payload parsing and deduplicate usage/model metadata refreshes (#1748)
 - **fix(antigravity):** normalize Gemini bridge payloads — sanitize tool names, cap output tokens, and fix thinking budget (#1769)
@@ -22,6 +39,10 @@
 - **fix(kiro):** support organization IDC OAuth with regional endpoints and refresh (#1754)
 - **fix(combo):** include 429 in provider circuit breaker to stop infinite retry loops on exhausted quotas (#1767)
 - **fix(claude):** respect client-set thinking/effort params — only inject adaptive thinking and high effort when the client hasn't explicitly set them, preventing forced quota drain on Claude Max accounts (#1761)
+- **fix(blackbox-web):** correct cookie name and populate session/subscription fields (#1776)
+- **fix(codex):** align client identity metadata (#1778)
+- **fix(claude):** fix support for claude-cli using Gemini provider (#1779)
+- **test(reasoning-cache):** isolate DB state using mkdtempSync to prevent 401 middleware errors
 
 ### 🛠️ Maintenance
 

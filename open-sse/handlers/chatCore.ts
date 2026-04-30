@@ -85,6 +85,7 @@ import {
   parseCodexQuotaHeaders,
   getCodexModelScope,
   getCodexDualWindowCooldownMs,
+  isCompactResponsesEndpoint,
 } from "../executors/codex.ts";
 import { invalidateCodexQuotaCache } from "../services/codexQuotaFetcher.ts";
 import { translateNonStreamingResponse } from "./responseTranslator.ts";
@@ -621,10 +622,11 @@ function wrapReadableStreamWithFinalize<T>(
     },
 
     async cancel(reason) {
+      runFinalize();
       try {
         await reader.cancel(reason);
-      } finally {
-        runFinalize();
+      } catch (error) {
+        // Ignored
       }
     },
   });
@@ -1339,7 +1341,12 @@ export async function handleChatCore({
     delete b.streaming;
   }
 
-  const stream = resolveStreamFlag(body?.stream, acceptHeader);
+  // Codex /responses/compact is JSON-only: Codex CLI does not send stream=false,
+  // so route shape must override the usual Accept/header fallback.
+  const stream =
+    nativeCodexPassthrough && isCompactResponsesEndpoint(endpointPath)
+      ? false
+      : resolveStreamFlag(body?.stream, acceptHeader);
   const settings = await getCachedSettings();
   setGeminiThoughtSignatureMode(settings.antigravitySignatureCacheMode);
   const semanticCacheEnabled = settings.semanticCacheEnabled !== false;
@@ -2888,17 +2895,18 @@ export async function handleChatCore({
     } else {
       try {
         responseBody = rawBody ? JSON.parse(rawBody) : {};
-      } catch {
+      } catch (err) {
         appendRequestLog({
           model,
           provider,
           connectionId,
           status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}`,
         }).catch(() => {});
+        const detailedError = `Invalid JSON response from provider (error: ${err instanceof Error ? err.message : String(err)}): ${rawBody.substring(0, 1000)}`;
         const invalidJsonMessage = "Invalid JSON response from provider";
         persistAttemptLogs({
           status: HTTP_STATUS.BAD_GATEWAY,
-          error: invalidJsonMessage,
+          error: detailedError,
           providerRequest: finalBody || translatedBody,
           providerResponse: normalizedProviderPayload,
           clientResponse: buildErrorBody(HTTP_STATUS.BAD_GATEWAY, invalidJsonMessage),
@@ -3498,6 +3506,7 @@ export async function handleChatCore({
     clientResponseFormat === FORMATS.OPENAI &&
     !isResponsesEndpoint &&
     !isDroidCLI;
+  const streamStateBody = finalBody || body;
 
   if (needsResponsesTranslation) {
     // Provider returns openai-responses, translate to openai (Chat Completions) that clients expect
@@ -3510,7 +3519,7 @@ export async function handleChatCore({
       responseToolNameMap,
       model,
       connectionId,
-      body,
+      streamStateBody,
       onStreamComplete,
       apiKeyInfo,
       handleStreamFailure
@@ -3526,7 +3535,7 @@ export async function handleChatCore({
       responseToolNameMap,
       model,
       connectionId,
-      body,
+      streamStateBody,
       onStreamComplete,
       apiKeyInfo,
       handleStreamFailure
@@ -3539,7 +3548,7 @@ export async function handleChatCore({
       responseToolNameMap,
       model,
       connectionId,
-      body,
+      streamStateBody,
       onStreamComplete,
       apiKeyInfo,
       handleStreamFailure,
