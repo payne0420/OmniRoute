@@ -188,7 +188,7 @@ function resolveVisionCapability(
   );
 
   if (typeof synced?.attachment === "boolean") {
-    return synced.attachment || allModalities.some((entry) => entry.includes("image"));
+    return synced.attachment;
   }
 
   if (allModalities.some((entry) => entry.includes("image"))) {

@@ -812,8 +812,8 @@ export async function getUnifiedModelsResponse(
 
       const provider = typeof model.owned_by === "string" ? model.owned_by : null;
       if (!provider) return undefined;
-      const alias = providerIdToAlias[provider] || provider;
-      return REGISTRY[provider]?.defaultContextLength || REGISTRY[alias]?.defaultContextLength;
+      const canonicalId = aliasToProviderId[provider] || provider;
+      return REGISTRY[canonicalId]?.defaultContextLength;
     };
 
     const enrichedModels = finalModels.map((model) => {
