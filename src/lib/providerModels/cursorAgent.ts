@@ -106,21 +106,7 @@ export function humanizeCursorModelId(id: string): string {
     .join(" ");
 }
 
-// Models cursor-agent reports but which fail when sent to the chat RPC
-// (`/aiserver.v1.ChatService/StreamUnifiedChatWithTools`). `auto` is a
-// client-side abstraction that cursor-agent resolves locally before dispatch;
-// `composer-*` targets cursor's edit/composer surface which uses a different
-// endpoint and message shape.
-function isUnsupportedChatModel(id: string): boolean {
-  if (id === "auto") return true;
-  if (id.startsWith("composer-")) return true;
-  return false;
-}
-
-export function parseCursorAgentModels(
-  text: string,
-  options: { includeUnsupported?: boolean } = {}
-): string[] {
+export function parseCursorAgentModels(text: string): string[] {
   const match = text.match(/Available models:\s*([^\n]+)/);
   if (!match) return [];
   const seen = new Set<string>();
@@ -129,7 +115,6 @@ export function parseCursorAgentModels(
     const id = raw.trim();
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    if (!options.includeUnsupported && isUnsupportedChatModel(id)) continue;
     out.push(id);
   }
   return out;
@@ -142,7 +127,7 @@ export type CursorAgentModelEntry = {
 };
 
 export async function fetchCursorAgentModels(
-  options: { binary?: string; timeoutMs?: number; includeUnsupported?: boolean } = {}
+  options: { binary?: string; timeoutMs?: number } = {}
 ): Promise<CursorAgentModelEntry[]> {
   const binary = options.binary || resolveCursorAgentBinary();
   const timeoutMs = options.timeoutMs ?? 5000;
@@ -168,9 +153,7 @@ export async function fetchCursorAgentModels(
   }
   const combined = `${result.stdout}\n${result.stderr}`;
 
-  const ids = parseCursorAgentModels(combined, {
-    includeUnsupported: options.includeUnsupported,
-  });
+  const ids = parseCursorAgentModels(combined);
   if (ids.length === 0) {
     throw new Error("cursor-agent did not return an 'Available models:' line");
   }

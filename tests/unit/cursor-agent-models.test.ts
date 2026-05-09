@@ -5,22 +5,13 @@ import {
   parseCursorAgentModels,
 } from "../../src/lib/providerModels/cursorAgent";
 
-test("parseCursorAgentModels filters out unsupported chat models by default", () => {
+test("parseCursorAgentModels returns every reported id including auto and composer-*", () => {
   const text =
     "Cannot use this model: --help. Available models: auto, composer-2, composer-2-fast, gpt-5.3-codex-low, claude-opus-4-7-thinking-high, kimi-k2.5";
   assert.deepEqual(parseCursorAgentModels(text), [
-    "gpt-5.3-codex-low",
-    "claude-opus-4-7-thinking-high",
-    "kimi-k2.5",
-  ]);
-});
-
-test("parseCursorAgentModels keeps unsupported ids when opted in", () => {
-  const text =
-    "Available models: auto, composer-2, gpt-5.3-codex-low, claude-opus-4-7-thinking-high, kimi-k2.5";
-  assert.deepEqual(parseCursorAgentModels(text, { includeUnsupported: true }), [
     "auto",
     "composer-2",
+    "composer-2-fast",
     "gpt-5.3-codex-low",
     "claude-opus-4-7-thinking-high",
     "kimi-k2.5",
