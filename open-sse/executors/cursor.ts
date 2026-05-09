@@ -38,9 +38,12 @@ import {
   type McpToolDefinition,
   type OpenAITool,
 } from "../utils/cursorAgentProtobuf.ts";
-import { estimateUsage } from "../utils/usageTracking.ts";
+import {
+  estimateInputTokens,
+  estimateOutputTokens,
+  addBufferToUsage,
+} from "../utils/usageTracking.ts";
 import { getCursorVersion } from "../utils/cursorVersionDetector.ts";
-import { FORMATS } from "../translator/formats.ts";
 import { generateToolCallId } from "../translator/helpers/toolCallHelper.ts";
 import { cursorSessionManager, type CursorSession } from "../services/cursorSessionManager.ts";
 import crypto from "crypto";
@@ -205,6 +208,7 @@ export type StreamCtx = {
   emit: (chunk: string) => void;
   emittedRoleChunk: boolean;
   totalText: string;
+  thinkingText: string;
   tokenDelta: number;
   // End-signal tracking (Phase 8 hardens this further).
   receivedText: boolean;
@@ -238,6 +242,7 @@ export function newStreamCtx(model: string, emit: (chunk: string) => void): Stre
     emit,
     emittedRoleChunk: false,
     totalText: "",
+    thinkingText: "",
     tokenDelta: 0,
     receivedText: false,
     kvAfterTextSeen: false,
@@ -260,9 +265,29 @@ function emitChunk(ctx: StreamCtx, delta: object, finishReason: string | null = 
   ctx.emit(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+export function buildCursorUsage(ctx: StreamCtx, body: { messages?: ChatMessage[] }) {
+  const promptTokens = estimateInputTokens(body);
+  const completionTokens =
+    ctx.tokenDelta > 0
+      ? ctx.tokenDelta
+      : estimateOutputTokens(ctx.totalText.length + ctx.thinkingText.length);
+  const usage: Record<string, unknown> = {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    estimated: true,
+  };
+  if (ctx.thinkingText.length > 0) {
+    usage.completion_tokens_details = {
+      reasoning_tokens: estimateOutputTokens(ctx.thinkingText.length),
+    };
+  }
+  return addBufferToUsage(usage);
+}
+
 function emitUsage(ctx: StreamCtx, body: { messages?: ChatMessage[] }) {
-  if (ctx.tokenDelta <= 0) return;
-  const usage = estimateUsage(FORMATS.OPENAI, body.messages || [], ctx.totalText, ctx.tokenDelta);
+  if (ctx.tokenDelta <= 0 && ctx.totalText.length === 0 && ctx.thinkingText.length === 0) return;
+  const usage = buildCursorUsage(ctx, body);
   const payload = {
     id: ctx.responseId,
     object: "chat.completion.chunk",
@@ -428,8 +453,14 @@ export function processFrame(
       ctx.totalText += d.text;
       ctx.receivedText = true;
       emitChunk(ctx, { content: d.text });
-    } else if (d.kind === "thinking") {
+    } else if (d.kind === "thinking" && d.text) {
+      if (!ctx.emittedRoleChunk) {
+        emitChunk(ctx, { role: "assistant", content: "" });
+        ctx.emittedRoleChunk = true;
+      }
+      ctx.thinkingText += d.text;
       ctx.receivedText = true;
+      emitChunk(ctx, { reasoning_content: d.text });
     } else if (d.kind === "token_delta") {
       ctx.tokenDelta += d.tokens;
     } else if (d.kind === "turn_ended") {
@@ -1096,9 +1127,12 @@ export class CursorExecutor extends BaseExecutor {
         emittedRoleChunk: false,
         totalText: "",
       };
-      if (ctx.totalText.length > 0 || ctx.toolCalls.length > 0) {
+      if (ctx.totalText.length > 0 || ctx.thinkingText.length > 0 || ctx.toolCalls.length > 0) {
         emitChunk(collectingCtx, { role: "assistant", content: "" });
         collectingCtx.emittedRoleChunk = true;
+      }
+      if (ctx.thinkingText.length > 0) {
+        emitChunk(collectingCtx, { reasoning_content: ctx.thinkingText });
       }
       if (ctx.totalText.length > 0) {
         emitChunk(collectingCtx, { content: ctx.totalText });
@@ -1136,16 +1170,12 @@ export class CursorExecutor extends BaseExecutor {
 
     // Non-streaming: chat.completion shape. Include tool_calls in the
     // assistant message when the model invoked any (Phase 5).
-    const usage = estimateUsage(
-      FORMATS.OPENAI,
-      body.messages || [],
-      ctx.totalText,
-      ctx.tokenDelta || undefined
-    );
+    const usage = buildCursorUsage(ctx, body);
     const finishReason = ctx.toolCalls.length > 0 ? "tool_calls" : "stop";
     const message: {
       role: "assistant";
       content: string | null;
+      reasoning_content?: string;
       tool_calls?: Array<{
         id: string;
         type: "function";
@@ -1155,6 +1185,9 @@ export class CursorExecutor extends BaseExecutor {
       role: "assistant",
       content: ctx.totalText.length > 0 ? ctx.totalText : null,
     };
+    if (ctx.thinkingText.length > 0) {
+      message.reasoning_content = ctx.thinkingText;
+    }
     if (ctx.toolCalls.length > 0) {
       message.tool_calls = ctx.toolCalls.map((tc) => ({
         id: tc.id,
