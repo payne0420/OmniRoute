@@ -660,8 +660,10 @@ export class CursorExecutor extends BaseExecutor {
     signal?: AbortSignal
   ): Promise<void> {
     const ackedExecIds = new Set<string>();
-    let scanFromOffset = 0;
-    const buf: Buffer[] = h2.initialBytes.length > 0 ? [h2.initialBytes] : [];
+    // Rolling buffer: chunks arrive on `data`, get appended, and consumed
+    // frames are sliced off so we don't re-scan + re-concat on every event
+    // (avoids O(N²) for long-running streams).
+    let buf: Buffer = h2.initialBytes.length > 0 ? h2.initialBytes : Buffer.alloc(0);
 
     return new Promise((resolve, reject) => {
       // Phase 8: safety timeout. If neither turn_ended, kv_after_text, nor
@@ -678,7 +680,7 @@ export class CursorExecutor extends BaseExecutor {
         if (CURSOR_DEBUG && process.env.CURSOR_DUMP_FILE) {
           fs.appendFileSync(process.env.CURSOR_DUMP_FILE, chunk);
         }
-        buf.push(Buffer.from(chunk));
+        buf = buf.length === 0 ? Buffer.from(chunk) : Buffer.concat([buf, chunk]);
         tryScan();
       };
       const onEnd = () => {
@@ -718,27 +720,31 @@ export class CursorExecutor extends BaseExecutor {
       if (signal) signal.addEventListener("abort", onAbort);
 
       const tryScan = () => {
-        const buffer = Buffer.concat(buf);
-        try {
-          let pos = scanFromOffset;
-          while (pos + 5 <= buffer.length) {
-            const length = buffer.readUInt32BE(pos + 1);
-            if (pos + 5 + length > buffer.length) break;
-            const flag = buffer[pos];
-            const raw = buffer.subarray(pos + 5, pos + 5 + length);
+        let pos = 0;
+        while (pos + 5 <= buf.length) {
+          const length = buf.readUInt32BE(pos + 1);
+          if (pos + 5 + length > buf.length) break; // partial frame; wait
+          const flag = buf[pos];
+          const raw = buf.subarray(pos + 5, pos + 5 + length);
+          // Per-frame error isolation: if gunzip or processFrame throws on
+          // one frame, log and skip past it instead of getting stuck on
+          // the same offset and hanging until the safety timer fires.
+          try {
             const payload = flag & 0x1 ? zlib.gunzipSync(raw) : raw;
             processFrame(payload, ctx, ackedExecIds, { h2Req: h2.req, mcpTools, blobStore });
-            if (ctx.endReason) {
-              detachListeners();
-              resolve();
-              return;
-            }
-            pos += 5 + length;
+          } catch (err) {
+            debugLog("[cursor-agent] frame decode failed at pos", pos, ":", (err as Error).message);
           }
-          scanFromOffset = pos;
-        } catch {
-          // Partial / undecodable — keep buffering until next data event.
+          pos += 5 + length;
+          if (ctx.endReason) {
+            buf = buf.subarray(pos);
+            detachListeners();
+            resolve();
+            return;
+          }
         }
+        // Splice off processed bytes so the buffer stays bounded.
+        if (pos > 0) buf = buf.subarray(pos);
       };
 
       h2.req.on("data", onData);
@@ -878,22 +884,29 @@ export class CursorExecutor extends BaseExecutor {
     }
 
     if (session) {
-      // Inline resume: send ExecMcpResult for each role:"tool" message in
-      // order. Tool messages whose tool_call_id wasn't seen in the previous
-      // turn's mcp_args fall back to cold-resume (close the session, open
-      // fresh).
+      // Inline resume: send ExecMcpResult only for tool messages whose
+      // tool_call_id is currently pending in this session. Older tool
+      // messages from prior turns are already consumed by cursor and
+      // sit in the request history harmlessly — sending them again
+      // would either be a no-op or wedge the session, so we skip.
+      // We require at least one match so we don't reuse the session
+      // for a request that has no relevant tool results.
       blobStore = session.blobStore;
-      let allMatched = true;
+      let matched = 0;
+      let hadFailure = false;
       for (const msg of messages) {
         if (msg.role !== "tool") continue;
-        const content = typeof msg.content === "string" ? msg.content : "";
         const id = msg.tool_call_id ?? "";
-        if (!cursorSessionManager.sendToolResult(session, id, content, false)) {
-          allMatched = false;
+        if (!session.pendingToolCalls.has(id)) continue;
+        const content = typeof msg.content === "string" ? msg.content : "";
+        if (cursorSessionManager.sendToolResult(session, id, content, false)) {
+          matched++;
+        } else {
+          hadFailure = true;
           break;
         }
       }
-      if (!allMatched) {
+      if (matched === 0 || hadFailure) {
         cursorSessionManager.close(session);
         session = undefined;
       } else {
@@ -1073,22 +1086,43 @@ export class CursorExecutor extends BaseExecutor {
     }
 
     if (stream !== false) {
-      // Cloud env streaming — emit all chunks as a single SSE blob.
+      // Cloud env streaming — replay text content AND tool_calls deltas
+      // captured in ctx (runFetchFallback uses a no-op emitter, so the
+      // chunks need to be reconstructed here before finalize).
       const parts: string[] = [];
       const collectingCtx: StreamCtx = {
         ...ctx,
         emit: (s: string) => parts.push(s),
-        // emittedRoleChunk + totalText reset since we re-emit chunks for the
-        // already-collected text.
         emittedRoleChunk: false,
         totalText: "",
       };
-      if (ctx.totalText.length > 0) {
+      if (ctx.totalText.length > 0 || ctx.toolCalls.length > 0) {
         emitChunk(collectingCtx, { role: "assistant", content: "" });
-        emitChunk(collectingCtx, { content: ctx.totalText });
-        collectingCtx.totalText = ctx.totalText;
-        collectingCtx.tokenDelta = ctx.tokenDelta;
+        collectingCtx.emittedRoleChunk = true;
       }
+      if (ctx.totalText.length > 0) {
+        emitChunk(collectingCtx, { content: ctx.totalText });
+      }
+      // Replay tool_calls (init chunk with id+name, then args chunk),
+      // mirroring the streaming-path emission in processFrame.
+      ctx.toolCalls.forEach((tc, index) => {
+        emitChunk(collectingCtx, {
+          tool_calls: [
+            {
+              index,
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: "" },
+            },
+          ],
+        });
+        emitChunk(collectingCtx, {
+          tool_calls: [{ index, function: { arguments: tc.argumentsJson } }],
+        });
+      });
+      collectingCtx.totalText = ctx.totalText;
+      collectingCtx.tokenDelta = ctx.tokenDelta;
+      collectingCtx.toolCalls = ctx.toolCalls;
       this.finalizeSseStream(collectingCtx, body);
       return new Response(parts.join(""), {
         status: 200,
