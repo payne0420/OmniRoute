@@ -14,7 +14,6 @@ import { BaseExecutor, mergeUpstreamExtraHeaders } from "./base.ts";
 import { PROVIDERS, HTTP_STATUS } from "../config/constants.ts";
 import {
   buildAgentRequestBody,
-  iterateConnectFrames,
   decodeAgentServerMessage,
   decodeExecServerEvent,
   decodeKvServerEvent,
@@ -787,41 +786,6 @@ export class CursorExecutor extends BaseExecutor {
     });
   }
 
-  /**
-   * Cloud env (no http2): fetch + buffer the entire response, then walk
-   * Connect-RPC frames through processFrame. Without bidirectional writes
-   * the request_context ack can't be sent — cursor will likely stall —
-   * but we keep this as a structural fallback so the executor doesn't
-   * throw in environments that lack http2.
-   */
-  private async runFetchFallback(
-    url: string,
-    headers: Record<string, string>,
-    body: Uint8Array,
-    ctx: StreamCtx,
-    mcpTools: McpToolDefinition[] | undefined,
-    blobStore: Map<string, Buffer> | undefined,
-    signal?: AbortSignal
-  ): Promise<{ status: number; errorBody?: Buffer }> {
-    void mcpTools; // request_context / KV can't be acked over fetch
-    void blobStore;
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: body as unknown as BodyInit,
-      signal,
-    });
-    const buf = Buffer.from(await response.arrayBuffer());
-    if (response.status !== 200) return { status: response.status, errorBody: buf };
-    const ackedExecIds = new Set<string>();
-    for (const frame of iterateConnectFrames(buf)) {
-      processFrame(frame.payload, ctx, ackedExecIds, { mcpTools, blobStore });
-      if (ctx.endReason) break;
-    }
-    if (!ctx.endReason) ctx.endReason = "server_end";
-    return { status: 200 };
-  }
-
   async execute({ model, body, stream, credentials, signal, log, upstreamExtraHeaders }) {
     const url = this.buildUrl();
     const headers = this.buildHeaders(credentials);
@@ -847,44 +811,23 @@ export class CursorExecutor extends BaseExecutor {
         headers: { "Content-Type": "application/json" },
       });
 
-    // ── Cloud env (fetch fallback): buffer-then-decode, single Response ──
+    // Cursor's agent.v1.AgentService/Run is a bidirectional Connect-RPC:
+    // request_context, KV blob lookups, and exec rejections must be
+    // written back on the same h2 stream while the response is still
+    // being read. One-shot fetch can't do that, so cloud/edge runtimes
+    // without node:http2 cannot drive cursor at all — fail fast with a
+    // clear error rather than silently producing incomplete output.
     if (!http2) {
-      const { body: transformedBody, blobStore } = this.buildRequest(model, body);
-      try {
-        const ctx = newStreamCtx(model, () => {});
-        const result = await this.runFetchFallback(
-          url,
-          headers,
-          transformedBody,
-          ctx,
-          mcpTools,
-          blobStore,
-          signal
-        );
-        if (result.status !== 200) {
-          const errText = result.errorBody?.toString("utf8") || "Unknown error";
-          return {
-            response: buildErrorResponse(result.status, `[${result.status}]: ${errText}`),
-            url,
-            headers,
-            transformedBody: body,
-          };
-        }
-        return {
-          response: this.buildResponseFromCtx(ctx, body, stream),
-          url,
-          headers,
-          transformedBody: body,
-        };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return {
-          response: buildErrorResponse(HTTP_STATUS.SERVER_ERROR, message, "connection_error"),
-          url,
-          headers,
-          transformedBody: body,
-        };
-      }
+      return {
+        response: buildErrorResponse(
+          501,
+          "Cursor provider requires Node.js http2, which is unavailable in this runtime (Edge / Cloudflare Workers / similar). Run OmniRoute on a Node.js runtime to use cursor.",
+          "unsupported_runtime"
+        ),
+        url,
+        headers,
+        transformedBody: body,
+      };
     }
 
     // ── h2 path with inline session manager (Phase 6) ──
@@ -1043,7 +986,7 @@ export class CursorExecutor extends BaseExecutor {
     }
     finishLifecycle(ctx, false);
     return {
-      response: this.buildResponseFromCtx(ctx, body, false),
+      response: this.buildResponseFromCtx(ctx, body),
       url,
       headers,
       transformedBody: body,
@@ -1052,8 +995,8 @@ export class CursorExecutor extends BaseExecutor {
 
   /**
    * Emit the trailing SSE chunks (finish + usage + DONE) onto an already-open
-   * stream. Called once driveH2 / runFetchFallback returns and ctx.endReason
-   * is set. The mid-stream-error path emits an error chunk instead.
+   * stream. Called once driveH2 returns and ctx.endReason is set. The
+   * mid-stream-error path emits an error chunk instead.
    */
   private finalizeSseStream(ctx: StreamCtx, body: { messages?: ChatMessage[] }) {
     if (ctx.midStreamError && ctx.totalText.length === 0) {
@@ -1090,14 +1033,11 @@ export class CursorExecutor extends BaseExecutor {
   }
 
   /**
-   * Build a Response from a fully-driven StreamCtx. Used for both the
-   * non-streaming JSON path and the cloud-env fetch fallback.
+   * Build a non-streaming chat.completion JSON Response from a fully-driven
+   * StreamCtx. The streaming path emits chunks live via finalizeSseStream
+   * and never calls this method.
    */
-  private buildResponseFromCtx(
-    ctx: StreamCtx,
-    body: { messages?: ChatMessage[] },
-    stream: boolean | undefined
-  ): Response {
+  private buildResponseFromCtx(ctx: StreamCtx, body: { messages?: ChatMessage[] }): Response {
     if (ctx.midStreamError && ctx.totalText.length === 0) {
       return new Response(
         JSON.stringify({
@@ -1114,58 +1054,6 @@ export class CursorExecutor extends BaseExecutor {
           headers: { "Content-Type": "application/json" },
         }
       );
-    }
-
-    if (stream !== false) {
-      // Cloud env streaming — replay text content AND tool_calls deltas
-      // captured in ctx (runFetchFallback uses a no-op emitter, so the
-      // chunks need to be reconstructed here before finalize).
-      const parts: string[] = [];
-      const collectingCtx: StreamCtx = {
-        ...ctx,
-        emit: (s: string) => parts.push(s),
-        emittedRoleChunk: false,
-        totalText: "",
-      };
-      if (ctx.totalText.length > 0 || ctx.thinkingText.length > 0 || ctx.toolCalls.length > 0) {
-        emitChunk(collectingCtx, { role: "assistant", content: "" });
-        collectingCtx.emittedRoleChunk = true;
-      }
-      if (ctx.thinkingText.length > 0) {
-        emitChunk(collectingCtx, { reasoning_content: ctx.thinkingText });
-      }
-      if (ctx.totalText.length > 0) {
-        emitChunk(collectingCtx, { content: ctx.totalText });
-      }
-      // Replay tool_calls (init chunk with id+name, then args chunk),
-      // mirroring the streaming-path emission in processFrame.
-      ctx.toolCalls.forEach((tc, index) => {
-        emitChunk(collectingCtx, {
-          tool_calls: [
-            {
-              index,
-              id: tc.id,
-              type: "function",
-              function: { name: tc.name, arguments: "" },
-            },
-          ],
-        });
-        emitChunk(collectingCtx, {
-          tool_calls: [{ index, function: { arguments: tc.argumentsJson } }],
-        });
-      });
-      collectingCtx.totalText = ctx.totalText;
-      collectingCtx.tokenDelta = ctx.tokenDelta;
-      collectingCtx.toolCalls = ctx.toolCalls;
-      this.finalizeSseStream(collectingCtx, body);
-      return new Response(parts.join(""), {
-        status: 200,
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
     }
 
     // Non-streaming: chat.completion shape. Include tool_calls in the
