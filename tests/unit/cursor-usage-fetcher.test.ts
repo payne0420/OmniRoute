@@ -208,6 +208,19 @@ test("cursor usage: 307 redirect surfaces as expired session message", async () 
     assert.equal(usage.plan, "Cursor");
     assert.match(usage.message, /session expired|Re-import/i);
     assert.equal(usage.quotas, undefined);
+
+    // Contract with src/lib/usage/providerLimits.ts::syncExpiredStatusIfNeeded:
+    // the message MUST include one of these markers, otherwise a rejected
+    // WorkOS session keeps `testStatus = "active"` and gets retried forever
+    // instead of being flipped to `expired`.
+    const lower = usage.message.toLowerCase();
+    assert.ok(
+      lower.includes("token expired") ||
+        lower.includes("access denied") ||
+        lower.includes("re-authenticate") ||
+        lower.includes("unauthorized"),
+      `307 message must include an isAuthError marker, got: ${usage.message}`
+    );
   } finally {
     mock.restore();
   }

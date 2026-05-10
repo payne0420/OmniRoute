@@ -1,5 +1,10 @@
 import { CURSOR_CONFIG } from "../constants/oauth";
 import { getCursorUserAgent } from "@omniroute/open-sse/config/providerHeaderProfiles.ts";
+import {
+  CURSOR_USAGE_CONFIG,
+  buildCursorSessionCookie,
+  decodeCursorJwtSub,
+} from "@omniroute/open-sse/services/usage.ts";
 
 /**
  * Cursor IDE OAuth Service
@@ -128,33 +133,28 @@ export class CursorService {
   }
 
   /**
-   * Extract user info from token if possible
-   * Cursor tokens may contain encoded user info
+   * Extract user info from token if possible.
+   * Delegates JWT base64-url decoding to the shared `decodeCursorJwtSub`
+   * helper; this function only adds the email-claim parsing on top.
    */
   extractUserInfo(accessToken: string) {
+    const userId = decodeCursorJwtSub(accessToken);
+    if (!userId) return null;
+
+    let email: string | null = null;
     try {
-      // Try to decode as JWT
       const parts = accessToken.split(".");
-      if (parts.length === 3) {
-        let payload = parts[1];
-        while (payload.length % 4) {
-          payload += "=";
-        }
-        const decoded = JSON.parse(
-          Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString()
-        );
-        const email =
-          typeof decoded.email === "string" && decoded.email.includes("@") ? decoded.email : null;
-        return {
-          email,
-          userId: decoded.sub || decoded.user_id,
-        };
+      let payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (payload.length % 4) payload += "=";
+      const decoded = JSON.parse(Buffer.from(payload, "base64").toString("utf8"));
+      if (typeof decoded.email === "string" && decoded.email.includes("@")) {
+        email = decoded.email;
       }
     } catch {
-      // Token is not a JWT, that's okay
+      // Already validated as JWT-shaped via decodeCursorJwtSub; just no email claim.
     }
 
-    return null;
+    return { email, userId };
   }
 
   /**
@@ -168,13 +168,13 @@ export class CursorService {
   ): Promise<{ email: string | null; name: string | null; sub: string | null } | null> {
     if (!accessToken || !userId) return null;
     try {
-      const response = await fetch("https://cursor.com/api/auth/me", {
+      const response = await fetch(CURSOR_USAGE_CONFIG.authMeUrl, {
         method: "GET",
         redirect: "manual",
         headers: {
-          Cookie: `WorkosCursorSessionToken=${userId}::${accessToken}`,
-          Origin: "https://cursor.com",
-          Referer: "https://cursor.com/dashboard",
+          Cookie: buildCursorSessionCookie(userId, accessToken),
+          Origin: CURSOR_USAGE_CONFIG.origin,
+          Referer: `${CURSOR_USAGE_CONFIG.host}/dashboard`,
           Accept: "application/json",
           "User-Agent": getCursorUserAgent(this.config.clientVersion),
         },

@@ -72,17 +72,37 @@ const NANOGPT_CONFIG = {
   usageUrl: "https://nano-gpt.com/api/subscription/v1/usage",
 };
 
-// Cursor dashboard usage API config
-// The endpoint that powers https://cursor.com/dashboard/spending. Validates the WorkOS
-// session via the WorkosCursorSessionToken cookie (format: `${userId}::${jwt}`) and
-// rejects requests without a matching Origin/Referer (Invalid origin for state-changing request).
-const CURSOR_USAGE_CONFIG = {
+// Cursor dashboard API config — exported so the OAuth import flow can reuse the
+// host / Origin / User-Agent without redefining them.
+//
+// The endpoint that powers https://cursor.com/dashboard/spending. Validates the
+// WorkOS session via the `WorkosCursorSessionToken=${userId}::${jwt}` cookie and
+// rejects requests without a matching Origin (returns 403 "Invalid origin for
+// state-changing request"). Cookie auth via `Authorization: Bearer …` does not
+// work for the dashboard endpoints — only the WorkOS session cookie is honored.
+//
+// `userAgent` is intentionally a real browser UA: the dashboard host appears to
+// gate on UA looking browser-shaped (Cursor IDE / curl UAs get rejected). The
+// exact version isn't validated, so this string is unlikely to age out, but if
+// the dashboard ever tightens UA sniffing this is the knob to bump.
+export const CURSOR_USAGE_CONFIG = {
+  host: "https://cursor.com",
   usageUrl: "https://cursor.com/api/dashboard/get-current-period-usage",
+  authMeUrl: "https://cursor.com/api/auth/me",
   origin: "https://cursor.com",
   referer: "https://cursor.com/dashboard/spending",
   userAgent:
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 };
+
+/**
+ * Build the WorkOS session cookie value the dashboard expects.
+ * Format: `WorkosCursorSessionToken=${userId}::${accessToken}` (Cursor accepts
+ * either the bare `user_…` or the full `google-oauth2|user_…` for `userId`).
+ */
+export function buildCursorSessionCookie(userId: string, accessToken: string): string {
+  return `WorkosCursorSessionToken=${userId}::${accessToken}`;
+}
 
 const MINIMAX_USAGE_CONFIG = {
   minimax: {
@@ -862,9 +882,11 @@ async function getNanoGptUsage(apiKey: string) {
 
 /**
  * Decode the `sub` claim of a Cursor JWT (the WorkOS user id).
- * Returns null if the token is not a parseable JWT.
+ * Returns null if the token is not a parseable JWT. Exported so the OAuth
+ * import flow in `src/lib/oauth/services/cursor.ts` can reuse it instead of
+ * duplicating the JWT base64-url decode logic.
  */
-function decodeCursorJwtSub(token: string): string | null {
+export function decodeCursorJwtSub(token: string): string | null {
   if (!token || typeof token !== "string") return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -906,7 +928,7 @@ async function getCursorUsage(accessToken: string, providerSpecificData?: unknow
       method: "POST",
       redirect: "manual",
       headers: {
-        Cookie: `WorkosCursorSessionToken=${userId}::${accessToken}`,
+        Cookie: buildCursorSessionCookie(userId, accessToken),
         Origin: CURSOR_USAGE_CONFIG.origin,
         Referer: CURSOR_USAGE_CONFIG.referer,
         "Content-Type": "application/json",
@@ -917,10 +939,14 @@ async function getCursorUsage(accessToken: string, providerSpecificData?: unknow
     });
 
     // 3xx redirect to WorkOS authkit means the session cookie was rejected.
+    // The message must include one of the markers `syncExpiredStatusIfNeeded`
+    // (src/lib/usage/providerLimits.ts) recognizes so the connection actually
+    // gets flipped to `expired` instead of being retried until end-of-time.
     if (response.status >= 300 && response.status < 400) {
       return {
         plan: "Cursor",
-        message: "Cursor session expired. Re-import the token from Cursor IDE.",
+        message:
+          "Cursor session unauthorized: WorkOS token expired. Re-import the token from Cursor IDE.",
       };
     }
 
