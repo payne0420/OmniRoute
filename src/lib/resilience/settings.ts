@@ -155,20 +155,13 @@ export const DEFAULT_RESILIENCE_SETTINGS: ResilienceSettings = {
   },
   quotaPreflight: {
     // Remaining-% semantics. 2 = "stop when only 2% remaining" (= 98% used).
+    // Uniform across all providers and windows; operators set per-window
+    // overrides per connection via the Cutoff modal in Dashboard › Limits,
+    // or per-(provider, window) globally via the providerWindowDefaults map
+    // below (no factory seeds — keep behavior consistent across providers).
     defaultThresholdPercent: 2,
     warnThresholdPercent: 20,
-    providerWindowDefaults: {
-      // Codex's two quota windows have very different reset cadences, so the
-      // factory defaults differ: session (5h) resets often so we let it run
-      // closer to empty; weekly resets only every 7 days so we leave more
-      // headroom. Keys match the dashboard's quota names; operators can
-      // override per connection via the Cutoff modal in Dashboard › Limits.
-      // Values are minimum-remaining %.
-      codex: {
-        session: 5, // stop when 5% remaining (= 95% used)
-        weekly: 20, // stop when 20% remaining (= 80% used)
-      },
-    },
+    providerWindowDefaults: {},
   },
 };
 

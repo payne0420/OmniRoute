@@ -23,22 +23,19 @@ test("default quotaPreflight thresholds use remaining-% semantics (matches dashb
   );
 });
 
-test("default providerWindowDefaults seeds Codex session=5, weekly=20 (remaining %)", () => {
+test("default providerWindowDefaults is empty — all providers share the global default", () => {
+  // No factory per-provider seeds; the per-window overrides apply only when
+  // operators explicitly set them. This keeps the modal placeholder
+  // consistent across providers (always shows the global default).
   const settings = cloneDefaults();
-  assert.deepEqual(settings.quotaPreflight.providerWindowDefaults.codex, {
-    session: 5,
-    weekly: 20,
-  });
+  assert.deepEqual(settings.quotaPreflight.providerWindowDefaults, {});
 });
 
 test("resolveResilienceSettings returns defaults when nothing is stored", () => {
   const resolved = resolveResilienceSettings({});
   assert.equal(resolved.quotaPreflight.defaultThresholdPercent, 2);
   assert.equal(resolved.quotaPreflight.warnThresholdPercent, 20);
-  assert.deepEqual(resolved.quotaPreflight.providerWindowDefaults.codex, {
-    session: 5,
-    weekly: 20,
-  });
+  assert.deepEqual(resolved.quotaPreflight.providerWindowDefaults, {});
 });
 
 test("mergeResilienceSettings: partial defaultThresholdPercent update preserves warnThresholdPercent", () => {
