@@ -443,6 +443,14 @@ export function rowToCamel(row: unknown): JsonRecord | null {
       } catch {
         result[camelKey] = v;
       }
+    } else if (camelKey === "quotaWindowThresholdsJson" && typeof v === "string") {
+      // Surface the parsed object under the friendlier name
+      // `quotaWindowThresholds` (the DB column is suffixed _json for clarity).
+      try {
+        result.quotaWindowThresholds = JSON.parse(v);
+      } catch {
+        result.quotaWindowThresholds = null;
+      }
     } else {
       result[camelKey] = v;
     }
