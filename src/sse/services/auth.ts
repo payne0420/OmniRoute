@@ -1340,6 +1340,13 @@ export async function getProviderCredentialsWithQuotaPreflight(
     resilience.quotaPreflight;
   const providerWindowMap = providerWindowDefaults[provider] || {};
   const providerHasDefaults = Object.keys(providerWindowMap).length > 0;
+  // The factory default is "block at 2% remaining" — effectively "right
+  // before 429." Skipping preflight at that level is a clean no-op. If an
+  // operator has raised the global to anything stricter (e.g. 20% remaining
+  // = stop at 80% used), preflight needs to run for every connection so the
+  // tighter floor is honored.
+  const FACTORY_NO_OP_REMAINING_PERCENT = 2;
+  const globalDefaultIsRestrictive = defaultThresholdPercent > FACTORY_NO_OP_REMAINING_PERCENT;
 
   while (true) {
     const credentials = await getProviderCredentials(
@@ -1380,20 +1387,31 @@ export async function getProviderCredentialsWithQuotaPreflight(
 
     // Latency gate: skip the upstream usage fetch entirely when there's
     // nothing to enforce. Preflight is only worth its cost when at least
-    // one of the following is set:
+    // one of the following is true:
     //   • a per-connection override on this row
     //   • a per-(provider, window) default in resilience settings
     //   • the legacy `quotaPreflightEnabled` flag in providerSpecificData
-    // Otherwise the resolver would return the global 98% default for every
-    // window, and a request to a near-exhausted account would still be
-    // caught by the normal 429 → cooldown path.
+    //   • the global default is stricter than the factory no-op level
+    //     (factory = 2% remaining, basically "right before 429" — anything
+    //     stricter means the operator wants enforcement everywhere)
+    // Otherwise the resolver would return the factory default for every
+    // window, and a near-exhausted account would still be caught by the
+    // normal 429 → cooldown path.
     const hasConnectionOverrides = Object.keys(perConnectionWindowOverrides).length > 0;
     const legacyForceEnable = isQuotaPreflightEnabled(credentials);
-    if (!hasConnectionOverrides && !providerHasDefaults && !legacyForceEnable) {
+    if (
+      !hasConnectionOverrides &&
+      !providerHasDefaults &&
+      !legacyForceEnable &&
+      !globalDefaultIsRestrictive
+    ) {
       return credentials;
     }
 
-    const resolveExhaustionPercent = (windowName: string | null): number => {
+    // Returns the minimum-remaining cutoff for a window — matches the
+    // dashboard's quota bars so the number the user types in the modal
+    // means the same thing as the percentage rendered on the bar.
+    const resolveMinRemainingPercent = (windowName: string | null): number => {
       if (windowName !== null) {
         const override = perConnectionWindowOverrides[windowName];
         if (typeof override === "number") return override;
@@ -1403,8 +1421,8 @@ export async function getProviderCredentialsWithQuotaPreflight(
       return defaultThresholdPercent;
     };
     const preflight = await preflightQuota(provider, connectionId, credentials, {
-      resolveExhaustionPercent,
-      resolveWarnPercent: () => warnThresholdPercent,
+      resolveMinRemainingPercent,
+      resolveWarnRemainingPercent: () => warnThresholdPercent,
     });
     if (preflight.proceed) {
       return credentials;

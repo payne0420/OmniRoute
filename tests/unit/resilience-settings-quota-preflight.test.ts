@@ -11,75 +11,82 @@ function cloneDefaults(): ResilienceSettings {
   return structuredClone(DEFAULT_RESILIENCE_SETTINGS);
 }
 
-test("default quotaPreflight values match the historical hardcoded thresholds", () => {
+test("default quotaPreflight thresholds use remaining-% semantics (matches dashboard)", () => {
   const settings = cloneDefaults();
-  assert.equal(settings.quotaPreflight.defaultThresholdPercent, 98);
-  assert.equal(settings.quotaPreflight.warnThresholdPercent, 80);
+  // Block when only 2% remaining (= 98% used).
+  assert.equal(settings.quotaPreflight.defaultThresholdPercent, 2);
+  // Warn at 20% remaining (= 80% used).
+  assert.equal(settings.quotaPreflight.warnThresholdPercent, 20);
+  // Warn fires earlier than block, so warn % > block %.
+  assert.ok(
+    settings.quotaPreflight.warnThresholdPercent > settings.quotaPreflight.defaultThresholdPercent
+  );
 });
 
-test("default providerWindowDefaults seeds Codex session=95, weekly=80", () => {
+test("default providerWindowDefaults seeds Codex session=5, weekly=20 (remaining %)", () => {
   const settings = cloneDefaults();
   assert.deepEqual(settings.quotaPreflight.providerWindowDefaults.codex, {
-    session: 95,
-    weekly: 80,
+    session: 5,
+    weekly: 20,
   });
 });
 
 test("resolveResilienceSettings returns defaults when nothing is stored", () => {
   const resolved = resolveResilienceSettings({});
-  assert.equal(resolved.quotaPreflight.defaultThresholdPercent, 98);
-  assert.equal(resolved.quotaPreflight.warnThresholdPercent, 80);
-  // The seeded codex defaults survive the resolve-from-empty path.
+  assert.equal(resolved.quotaPreflight.defaultThresholdPercent, 2);
+  assert.equal(resolved.quotaPreflight.warnThresholdPercent, 20);
   assert.deepEqual(resolved.quotaPreflight.providerWindowDefaults.codex, {
-    session: 95,
-    weekly: 80,
+    session: 5,
+    weekly: 20,
   });
 });
 
 test("mergeResilienceSettings: partial defaultThresholdPercent update preserves warnThresholdPercent", () => {
   const current = cloneDefaults();
   const next = mergeResilienceSettings(current, {
-    quotaPreflight: { defaultThresholdPercent: 95 },
+    quotaPreflight: { defaultThresholdPercent: 10 },
   });
-  assert.equal(next.quotaPreflight.defaultThresholdPercent, 95);
-  assert.equal(next.quotaPreflight.warnThresholdPercent, 80);
+  assert.equal(next.quotaPreflight.defaultThresholdPercent, 10);
+  assert.equal(next.quotaPreflight.warnThresholdPercent, 20);
 });
 
-test("mergeResilienceSettings clamps defaultThresholdPercent above 100 to 100", () => {
+test("mergeResilienceSettings clamps defaultThresholdPercent above 99 to 99", () => {
+  // Block at 100% remaining would mean "always block" — clamp to 99 so it's
+  // at least conceivable to use the account when it's exactly full.
   const next = mergeResilienceSettings(cloneDefaults(), {
     quotaPreflight: { defaultThresholdPercent: 150 },
   });
-  assert.equal(next.quotaPreflight.defaultThresholdPercent, 100);
+  assert.equal(next.quotaPreflight.defaultThresholdPercent, 99);
 });
 
-test("warnThresholdPercent is forced below defaultThresholdPercent when sent in conflict", () => {
+test("warnThresholdPercent is forced ABOVE defaultThresholdPercent when sent in conflict", () => {
+  // In remaining-% semantics, warn must be > cutoff so warnings fire BEFORE
+  // the block point (more remaining = warn first, less remaining = block).
   const next = mergeResilienceSettings(cloneDefaults(), {
-    quotaPreflight: { defaultThresholdPercent: 90, warnThresholdPercent: 95 },
+    quotaPreflight: { defaultThresholdPercent: 30, warnThresholdPercent: 10 },
   });
   assert(
-    next.quotaPreflight.warnThresholdPercent < next.quotaPreflight.defaultThresholdPercent,
-    `expected warn < default, got warn=${next.quotaPreflight.warnThresholdPercent} default=${next.quotaPreflight.defaultThresholdPercent}`
+    next.quotaPreflight.warnThresholdPercent > next.quotaPreflight.defaultThresholdPercent,
+    `expected warn > default, got warn=${next.quotaPreflight.warnThresholdPercent} default=${next.quotaPreflight.defaultThresholdPercent}`
   );
-  assert.equal(next.quotaPreflight.defaultThresholdPercent, 90);
-  assert.equal(next.quotaPreflight.warnThresholdPercent, 89);
+  assert.equal(next.quotaPreflight.defaultThresholdPercent, 30);
+  assert.equal(next.quotaPreflight.warnThresholdPercent, 31);
 });
 
 test("providerWindowDefaults: arbitrary new provider/window pairs are normalized and stored", () => {
   const next = mergeResilienceSettings(cloneDefaults(), {
     quotaPreflight: {
       providerWindowDefaults: {
-        // Replace codex's windows
-        codex: { window5h: 90, window7d: 70 },
-        // Add a hypothetical new provider with a monthly window
-        someprovider: { monthly: 60 },
+        codex: { session: 10, weekly: 30 },
+        someprovider: { monthly: 40 },
       },
     },
   });
   assert.deepEqual(next.quotaPreflight.providerWindowDefaults.codex, {
-    window5h: 90,
-    window7d: 70,
+    session: 10,
+    weekly: 30,
   });
-  assert.deepEqual(next.quotaPreflight.providerWindowDefaults.someprovider, { monthly: 60 });
+  assert.deepEqual(next.quotaPreflight.providerWindowDefaults.someprovider, { monthly: 40 });
 });
 
 test("providerWindowDefaults: out-of-range values are clamped, garbage is pruned", () => {
@@ -87,16 +94,16 @@ test("providerWindowDefaults: out-of-range values are clamped, garbage is pruned
     quotaPreflight: {
       providerWindowDefaults: {
         codex: {
-          window5h: 150, // clamped to 100
-          window7d: -20, // clamped to 0
+          session: 150, // clamped to 100
+          weekly: -20, // clamped to 0
           // @ts-expect-error: intentionally bogus to ensure pruning
           junk: "not a number",
         },
       },
     },
   });
-  assert.equal(next.quotaPreflight.providerWindowDefaults.codex.window5h, 100);
-  assert.equal(next.quotaPreflight.providerWindowDefaults.codex.window7d, 0);
+  assert.equal(next.quotaPreflight.providerWindowDefaults.codex.session, 100);
+  assert.equal(next.quotaPreflight.providerWindowDefaults.codex.weekly, 0);
   assert.equal(
     "junk" in next.quotaPreflight.providerWindowDefaults.codex,
     false,
@@ -108,17 +115,17 @@ test("resolveResilienceSettings round-trips a stored providerWindowDefaults map"
   const stored = {
     resilienceSettings: {
       quotaPreflight: {
-        defaultThresholdPercent: 85,
-        warnThresholdPercent: 70,
-        providerWindowDefaults: { codex: { window5h: 88, window7d: 60 } },
+        defaultThresholdPercent: 15,
+        warnThresholdPercent: 30,
+        providerWindowDefaults: { codex: { session: 12, weekly: 40 } },
       },
     },
   };
   const resolved = resolveResilienceSettings(stored);
-  assert.equal(resolved.quotaPreflight.defaultThresholdPercent, 85);
-  assert.equal(resolved.quotaPreflight.warnThresholdPercent, 70);
+  assert.equal(resolved.quotaPreflight.defaultThresholdPercent, 15);
+  assert.equal(resolved.quotaPreflight.warnThresholdPercent, 30);
   assert.deepEqual(resolved.quotaPreflight.providerWindowDefaults.codex, {
-    window5h: 88,
-    window7d: 60,
+    session: 12,
+    weekly: 40,
   });
 });

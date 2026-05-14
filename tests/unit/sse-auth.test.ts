@@ -232,6 +232,50 @@ test("getProviderCredentialsWithQuotaPreflight skips the upstream fetcher when n
   assert.equal(fetcherCalls, 0, "fetcher should not have been invoked");
 });
 
+test("getProviderCredentialsWithQuotaPreflight invokes the fetcher when the global default is restrictive", async () => {
+  // No per-connection override and no provider-window defaults — but the
+  // operator has raised the global default cutoff above the factory no-op
+  // level (2% remaining). Preflight must run so the tighter floor applies.
+  const conn = await seedConnection("openai", {
+    name: "quota-preflight-restrictive-global",
+    apiKey: "sk-restrictive-global",
+  });
+  await settingsDb.updateSettings({
+    resilienceSettings: {
+      quotaPreflight: {
+        defaultThresholdPercent: 20, // stop at 20% remaining = 80% used
+        warnThresholdPercent: 30,
+        providerWindowDefaults: {},
+      },
+    },
+  });
+
+  const quotaPreflight = await import("../../open-sse/services/quotaPreflight.ts");
+  let fetcherCalls = 0;
+  quotaPreflight.registerQuotaFetcher("openai", async () => {
+    fetcherCalls++;
+    return null;
+  });
+
+  await auth.getProviderCredentialsWithQuotaPreflight("openai");
+  assert.equal(
+    fetcherCalls,
+    1,
+    "fetcher should run when global default is stricter than the factory no-op level"
+  );
+
+  // Reset settings so subsequent tests see factory defaults.
+  await settingsDb.updateSettings({ resilienceSettings: {} });
+  // Verify the gate immediately returns to skip mode.
+  fetcherCalls = 0;
+  quotaPreflight.registerQuotaFetcher("openai", async () => {
+    fetcherCalls++;
+    throw new Error("must not run with factory global default");
+  });
+  await auth.getProviderCredentialsWithQuotaPreflight("openai");
+  assert.equal(fetcherCalls, 0, "fetcher should not run after settings reset to factory default");
+});
+
 test("getProviderCredentialsWithQuotaPreflight invokes the fetcher when an override IS set", async () => {
   // Counterpart to the no-limits test: if the connection has a
   // quotaWindowThresholds override, preflight must run.

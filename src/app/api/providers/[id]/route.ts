@@ -160,11 +160,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     if (group !== undefined) updateData.group = group;
     if (maxConcurrent !== undefined) updateData.maxConcurrent = maxConcurrent;
     if (incomingWindowThresholds !== undefined) {
-      // Three patch shapes are accepted:
-      //   1. null            → clear every per-window override on this connection
-      //   2. {} (empty map)  → same as null (no overrides set)
-      //   3. partial map     → merge into the existing map; a `null` value at
-      //                        any key clears just that window's override
+      // PATCH semantics:
+      //   • null            → clear every per-window override on this connection
+      //   • {} (empty map)  → no-op (no keys to merge); existing overrides preserved
+      //   • partial map     → merge into the existing map; a `null` value at any
+      //                        key clears just that window's override
       if (incomingWindowThresholds === null) {
         updateData.quotaWindowThresholds = null;
       } else {

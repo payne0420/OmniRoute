@@ -42,16 +42,24 @@ export interface WaitForCooldownSettings {
 
 export interface QuotaPreflightSettings {
   /**
-   * Global fallback threshold (percent, 0-100). Used when neither the
-   * per-(provider, window) default below nor a per-connection override
-   * applies. Connections at or above this percent are skipped.
+   * Global minimum-remaining cutoff (percent, 0-100). A connection is skipped
+   * when its remaining quota drops to this value or below. Matches the
+   * dashboard's quota bars (which show REMAINING %, not used %), so the
+   * number means the same thing in both places. Default: 2 (stop at 2%
+   * remaining = 98% used).
    */
   defaultThresholdPercent: number;
-  /** Global warn threshold (percent, 0-100). At or above logs a warning. */
+  /**
+   * Global warn threshold (percent, 0-100 remaining %). Fires when remaining
+   * quota drops to this value or below. Must be HIGHER than the cutoff so
+   * warnings appear before the block point. Default: 20 (warn at 20%
+   * remaining = 80% used).
+   */
   warnThresholdPercent: number;
   /**
    * Per-(provider, window) defaults for providers that expose multiple quota
-   * windows (e.g. Codex's 5h + 7d). Resolution order, low-to-high precedence:
+   * windows (e.g. Codex's session + weekly). Values are minimum-remaining %
+   * cutoffs. Resolution order, low-to-high precedence:
    *   defaultThresholdPercent
    *   → providerWindowDefaults[provider][window]
    *   → connection.quotaWindowThresholds[window]
@@ -146,17 +154,19 @@ export const DEFAULT_RESILIENCE_SETTINGS: ResilienceSettings = {
     maxRetryWaitMs: 30000,
   },
   quotaPreflight: {
-    defaultThresholdPercent: 98,
-    warnThresholdPercent: 80,
+    // Remaining-% semantics. 2 = "stop when only 2% remaining" (= 98% used).
+    defaultThresholdPercent: 2,
+    warnThresholdPercent: 20,
     providerWindowDefaults: {
       // Codex's two quota windows have very different reset cadences, so the
-      // factory defaults differ: 5h resets often (can be aggressive), weekly
-      // resets every 7 days (be cautious). Keys match the dashboard's quota
-      // names; operators can override per connection via the Cutoff modal in
-      // Dashboard › Limits.
+      // factory defaults differ: session (5h) resets often so we let it run
+      // closer to empty; weekly resets only every 7 days so we leave more
+      // headroom. Keys match the dashboard's quota names; operators can
+      // override per connection via the Cutoff modal in Dashboard › Limits.
+      // Values are minimum-remaining %.
       codex: {
-        session: 95,
-        weekly: 80,
+        session: 5, // stop when 5% remaining (= 95% used)
+        weekly: 20, // stop when 20% remaining (= 80% used)
       },
     },
   },
@@ -323,19 +333,21 @@ function normalizeQuotaPreflightSettings(
   fallback: QuotaPreflightSettings
 ): QuotaPreflightSettings {
   const record = asRecord(next);
+  // Remaining-% semantics: cutoff is the lowest acceptable remaining %, warn
+  // is the higher "you're getting close" remaining %. So warn MUST be greater
+  // than cutoff — otherwise the warn log would only fire after the request
+  // is already blocked.
   const defaultThresholdPercent = toInteger(
     record.defaultThresholdPercent,
     fallback.defaultThresholdPercent,
-    { min: 1, max: 100 }
+    { min: 0, max: 99 }
   );
   const warnRaw = toInteger(record.warnThresholdPercent, fallback.warnThresholdPercent, {
     min: 0,
     max: 100,
   });
-  // Invariant: warn must stay strictly below the exhaustion threshold so the
-  // warn log never fires for already-blocked requests.
   const warnThresholdPercent =
-    warnRaw >= defaultThresholdPercent ? Math.max(0, defaultThresholdPercent - 1) : warnRaw;
+    warnRaw <= defaultThresholdPercent ? Math.min(100, defaultThresholdPercent + 1) : warnRaw;
   const providerWindowDefaults = normalizeProviderWindowDefaults(
     record.providerWindowDefaults,
     fallback.providerWindowDefaults

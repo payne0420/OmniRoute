@@ -9,6 +9,10 @@
  * something to enforce (per-connection overrides, per-(provider, window)
  * defaults, or the legacy `quotaPreflightEnabled` flag).
  *
+ * Threshold semantics are "minimum remaining %" — matching the dashboard's
+ * quota bars, which show remaining (not used). A cutoff of 10 means "stop
+ * using this connection when it has 10% or less remaining."
+ *
  * `isQuotaPreflightEnabled` remains exported for back-compat so the caller
  * can honor the legacy flag, but `preflightQuota` itself no longer gates on
  * it — once you invoke preflight, it runs the fetcher and evaluates.
@@ -34,8 +38,10 @@ export interface QuotaInfo {
   resetAt?: string | null;
   /**
    * Optional per-window breakdown. When present, preflight evaluates each
-   * window against its own threshold (block if ANY exceeds) instead of using
-   * `percentUsed`. Keys are window names (e.g. "window5h", "window7d").
+   * window against its own threshold (block if ANY window has dropped to or
+   * below its min-remaining cutoff) instead of using `percentUsed`. Keys are
+   * window names that match the quota keys surfaced by getUsageForProvider
+   * (e.g. "session", "weekly", "monthly").
    */
   windows?: Record<string, QuotaWindowInfo>;
 }
@@ -67,8 +73,12 @@ export function getAllProviderQuotaWindows(): Record<string, readonly string[]> 
   return Object.fromEntries(quotaWindowsRegistry);
 }
 
-const EXHAUSTION_THRESHOLD = 0.98;
-const WARN_THRESHOLD = 0.8;
+// Thresholds use "minimum remaining %" semantics so the numbers match the
+// dashboard's quota bars (which show remaining %). A cutoff of 2 means
+// "block when only 2% remaining" (= 98% used). Warn fires earlier — at
+// 20% remaining (= 80% used) by default.
+const DEFAULT_MIN_REMAINING_PERCENT = 2;
+const DEFAULT_WARN_REMAINING_PERCENT = 20;
 
 const quotaFetcherRegistry = new Map<string, QuotaFetcher>();
 
@@ -87,31 +97,39 @@ export function isQuotaPreflightEnabled(connection: Record<string, unknown>): bo
 
 export interface PreflightQuotaThresholds {
   /**
-   * Resolve the exhaustion percent (0-100 integer) for a given window name.
-   * Called once per known window on the quota. Should return the smallest
-   * applicable cutoff: per-connection override → per-(provider,window)
-   * default → global default. Window name is `null` when the underlying
-   * fetcher only exposes a single-signal `percentUsed` (legacy path).
+   * Resolve the minimum-remaining cutoff (0-100 integer) for a given window
+   * name. The connection is blocked when its remaining quota drops to this
+   * value or below — e.g. returning 10 means "stop when only 10% remaining."
+   * Resolution order, low-to-high precedence:
+   *   global default → per-(provider, window) default → connection override
+   * Window name is `null` when the underlying fetcher only exposes a single-
+   * signal `percentUsed` (legacy path).
    */
-  resolveExhaustionPercent?: (window: string | null) => number;
+  resolveMinRemainingPercent?: (window: string | null) => number;
   /**
-   * Resolve the warning percent (0-100 integer) for a given window name.
-   * Same semantics as `resolveExhaustionPercent`.
+   * Resolve the warning threshold (0-100 integer remaining %) for a window.
+   * Warn fires when remaining quota drops to this value or below — should be
+   * HIGHER than the min-remaining cutoff so warnings appear before the block
+   * point.
    */
-  resolveWarnPercent?: (window: string | null) => number;
+  resolveWarnRemainingPercent?: (window: string | null) => number;
 }
 
 function resolveOrDefault(
   resolver: ((window: string | null) => number) | undefined,
   window: string | null,
-  fallbackFraction: number
+  fallbackPercent: number
 ): number {
-  if (!resolver) return fallbackFraction;
+  if (!resolver) return fallbackPercent;
   const raw = resolver(window);
   if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0 && raw <= 100) {
-    return raw / 100;
+    return raw;
   }
-  return fallbackFraction;
+  return fallbackPercent;
+}
+
+function remainingPercentFrom(percentUsed: number): number {
+  return Math.max(0, (1 - percentUsed) * 100);
 }
 
 export async function preflightQuota(
@@ -139,45 +157,51 @@ export async function preflightQuota(
   }
 
   // Per-window evaluation — only when the fetcher surfaces a windows map.
-  // We block as soon as ANY single window crosses its own exhaustion threshold;
-  // warnings are logged independently per window.
+  // We block as soon as ANY single window's remaining quota drops to its
+  // configured cutoff or below; warnings are logged independently per window.
   if (quota.windows && Object.keys(quota.windows).length > 0) {
-    let worstPercent = 0;
+    let worstUsedPercent = 0;
     let worstWindow: string | null = null;
     let worstResetAt: string | null = null;
     for (const [windowName, windowInfo] of Object.entries(quota.windows)) {
-      const exhaustion = resolveOrDefault(
-        thresholds?.resolveExhaustionPercent,
+      const minRemainingPercent = resolveOrDefault(
+        thresholds?.resolveMinRemainingPercent,
         windowName,
-        EXHAUSTION_THRESHOLD
+        DEFAULT_MIN_REMAINING_PERCENT
       );
-      const warn = resolveOrDefault(thresholds?.resolveWarnPercent, windowName, WARN_THRESHOLD);
+      const warnRemainingPercent = resolveOrDefault(
+        thresholds?.resolveWarnRemainingPercent,
+        windowName,
+        DEFAULT_WARN_REMAINING_PERCENT
+      );
+      const remainingPercent = remainingPercentFrom(windowInfo.percentUsed);
 
-      if (windowInfo.percentUsed >= exhaustion) {
+      if (remainingPercent <= minRemainingPercent) {
         // Track the most-depleted blocking window so the response can name it.
-        if (windowInfo.percentUsed > worstPercent) {
-          worstPercent = windowInfo.percentUsed;
+        if (windowInfo.percentUsed > worstUsedPercent) {
+          worstUsedPercent = windowInfo.percentUsed;
           worstWindow = windowName;
           worstResetAt = windowInfo.resetAt ?? null;
         } else if (worstWindow === null) {
           worstWindow = windowName;
           worstResetAt = windowInfo.resetAt ?? null;
         }
-      } else if (windowInfo.percentUsed >= warn) {
+      } else if (remainingPercent <= warnRemainingPercent) {
         console.warn(
-          `[QuotaPreflight] ${provider}/${connectionId} ${windowName}: ${(windowInfo.percentUsed * 100).toFixed(1)}% used — approaching limit`
+          `[QuotaPreflight] ${provider}/${connectionId} ${windowName}: ${remainingPercent.toFixed(1)}% remaining — approaching cutoff`
         );
       }
     }
 
     if (worstWindow !== null) {
+      const worstRemaining = remainingPercentFrom(worstUsedPercent);
       console.info(
-        `[QuotaPreflight] ${provider}/${connectionId} ${worstWindow}: ${(worstPercent * 100).toFixed(1)}% used — switching`
+        `[QuotaPreflight] ${provider}/${connectionId} ${worstWindow}: ${worstRemaining.toFixed(1)}% remaining — switching`
       );
       return {
         proceed: false,
         reason: "quota_exhausted",
-        quotaPercent: worstPercent,
+        quotaPercent: worstUsedPercent,
         resetAt: worstResetAt,
       };
     }
@@ -186,18 +210,23 @@ export async function preflightQuota(
   }
 
   // Legacy single-signal path for fetchers that don't expose per-window data.
-  const exhaustion = resolveOrDefault(
-    thresholds?.resolveExhaustionPercent,
+  const minRemainingPercent = resolveOrDefault(
+    thresholds?.resolveMinRemainingPercent,
     null,
-    EXHAUSTION_THRESHOLD
+    DEFAULT_MIN_REMAINING_PERCENT
   );
-  const warn = resolveOrDefault(thresholds?.resolveWarnPercent, null, WARN_THRESHOLD);
+  const warnRemainingPercent = resolveOrDefault(
+    thresholds?.resolveWarnRemainingPercent,
+    null,
+    DEFAULT_WARN_REMAINING_PERCENT
+  );
 
   const { percentUsed } = quota;
+  const remainingPercent = remainingPercentFrom(percentUsed);
 
-  if (percentUsed >= exhaustion) {
+  if (remainingPercent <= minRemainingPercent) {
     console.info(
-      `[QuotaPreflight] ${provider}/${connectionId}: ${(percentUsed * 100).toFixed(1)}% used — switching (threshold ${(exhaustion * 100).toFixed(0)}%)`
+      `[QuotaPreflight] ${provider}/${connectionId}: ${remainingPercent.toFixed(1)}% remaining — switching (cutoff ${minRemainingPercent}%)`
     );
     return {
       proceed: false,
@@ -207,9 +236,9 @@ export async function preflightQuota(
     };
   }
 
-  if (percentUsed >= warn) {
+  if (remainingPercent <= warnRemainingPercent) {
     console.warn(
-      `[QuotaPreflight] ${provider}/${connectionId}: ${(percentUsed * 100).toFixed(1)}% used — approaching limit`
+      `[QuotaPreflight] ${provider}/${connectionId}: ${remainingPercent.toFixed(1)}% remaining — approaching cutoff`
     );
   }
 

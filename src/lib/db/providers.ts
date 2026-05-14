@@ -45,21 +45,19 @@ function withNullableMaxConcurrent(
   };
 }
 
-// Preserve an explicit `quotaWindowThresholds: null` on the returned object
-// — `cleanNulls` strips null values, but the UI needs to see null (vs the
-// key being absent) so it can distinguish "no overrides on this connection"
-// from "field was never set." Sanitization at the call sites ensures the
-// value is always null or a non-empty Record by the time we get here.
+// Always surface `quotaWindowThresholds` (possibly null) on the returned
+// object — `cleanNulls` strips null values, but the UI needs to see null so
+// it can distinguish "no overrides on this connection" from "field was
+// never read." Mirrors `withNullableMaxConcurrent`'s contract so create and
+// update return the same shape regardless of whether the source had the key
+// stripped or carried forward.
 function withNullableQuotaWindowThresholds(
   record: JsonRecord,
   source: JsonRecord | null | undefined
 ): JsonRecord {
-  if (!source || !Object.hasOwn(source, "quotaWindowThresholds")) {
-    return record;
-  }
   return {
     ...record,
-    quotaWindowThresholds: source.quotaWindowThresholds ?? null,
+    quotaWindowThresholds: (source?.quotaWindowThresholds ?? null) as Record<string, number> | null,
   };
 }
 
@@ -293,15 +291,14 @@ export async function createProviderConnection(data: JsonRecord) {
     connection.providerSpecificData = normalizedProviderSpecificData;
   }
   // Sanitize the window-thresholds map up front so the in-memory `connection`
-  // matches the row we're about to insert. The serialize path filters again
-  // on the way to SQLite, but doing this here keeps the returned object honest.
+  // matches the row we're about to insert. The serialize path runs the same
+  // sanitizer on the way to SQLite. Assigning null (when sanitize collapses
+  // to no-overrides) keeps the field present on the returned object so the
+  // UI can tell "field was read, no overrides" apart from "field absent."
   if ("quotaWindowThresholds" in connection) {
-    const sanitized = sanitizeQuotaWindowThresholds(connection.quotaWindowThresholds);
-    if (sanitized === null) {
-      delete connection.quotaWindowThresholds;
-    } else {
-      connection.quotaWindowThresholds = sanitized;
-    }
+    connection.quotaWindowThresholds = sanitizeQuotaWindowThresholds(
+      connection.quotaWindowThresholds
+    );
   }
 
   _insertConnectionRow(db, encryptConnectionFields({ ...connection }));
